@@ -1,3 +1,26 @@
+/*
+This is a wrapper for SNF library to support direct interaction with
+Myricom/CSPI boards.
+
+The purpose of the package is to avoid using libpcap-wrapped SNF
+functionality in favor of more flexible and full-featured SNF C binding.
+Hence it diminishes (but not fully negates, see below) dependency on
+libpcap library.
+
+In order to be able to use google/gopacket (layers etc.) functionality,
+some interfaces in those packages are satisfied. Any feature requests
+regarding extension of such integration are welcomed.
+
+Currently, the package does not provide explicit BPF functionality since
+the BPF compiler is available in libpcap library only and such dependency
+would be an overkill. Filter interface is provided in the package which
+mimics the BPF behaviour in gopacket/pcap package.
+
+Most part of the package is a pretty much straightforward SNF API
+wrappers. On top of that, RingReceiver is provided which wraps bulk
+packet operation. RingReceiver also satisfies gopacket.ZeroCopyPacketDataSource
+in case you work with gopacket/pcap.
+*/
 package snf
 
 import (
