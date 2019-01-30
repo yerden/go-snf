@@ -259,7 +259,7 @@ func GetIfAddrs() ([]IfAddrs, error) {
 // the port number by interface name or mac address if
 // there are multiple.
 //
-// See OpenHandle() for additiona information.
+// See OpenHandle() for additional information.
 func OpenHandleDefaults(portnum uint32) (*Handle, error) {
 	var dev C.snf_handle_t
 	err := retErr(C.snf_open_defaults(C.uint(portnum), &dev))

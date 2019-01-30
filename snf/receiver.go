@@ -1,6 +1,36 @@
 package snf
 
 // #include <snf.h>
+// int refill(
+//   snf_ring_t ring,
+//   int timeout_ms,
+//   struct snf_recv_req *req_vector,
+//   int nreq_in, int *nreq_out,
+//   struct snf_ring_qinfo *qinfo, uint32_t *totlen) {
+//  int rc;
+//  uint32_t len = *totlen;
+//  if (len) {
+//   if ((rc = snf_ring_return_many(ring, len, NULL)) != 0) {
+//    return rc;
+//   }
+//  }
+//
+//  len = 0;
+//  int out;
+//  rc = snf_ring_recv_many(ring, timeout_ms,
+//    req_vector, nreq_in, &out, qinfo);
+//  if (rc != 0) {
+//   return rc;
+//  }
+//
+//  for (rc = 0; rc < out; rc++) {
+//   len += req_vector[rc].length_data;
+//  }
+//  *nreq_out = out;
+//  *totlen = len;
+//
+//  return 0;
+// }
 import "C"
 import (
 	"syscall"
@@ -8,6 +38,13 @@ import (
 
 	"github.com/google/gopacket"
 )
+
+// Filter interface may be applied to RingReceiver and filter
+// out unneeded packets. This interface is satisfied by
+// gopacket/pcap BPF object.
+type Filter interface {
+	Matches(ci gopacket.CaptureInfo, data []byte) bool
+}
 
 // RingReceiver wraps SNF's borrow-many-return-many model of packets
 // retrieval, along with google's gopacket interface.
@@ -40,36 +77,17 @@ func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 	}
 }
 
-// return old packets data and retrieve new packets.
-func (rr *RingReceiver) refill() error {
-	// return borrowed data
-	if rr.totalLen > 0 {
-		err := retErr(C.snf_ring_return_many(rr.ring, rr.totalLen, &rr.qinfo))
-		if err != nil {
-			return err
-		}
-	}
-
-	// reset totalLen counter
-	rr.totalLen = 0
-
-	// retrieve new packets from ring
-	nreqIn, nreqOut := C.int(len(rr.reqArray)), C.int(0)
-	cReqVec := (*C.struct_snf_recv_req)(&rr.reqArray[0])
-	err := retErr(C.snf_ring_recv_many(rr.ring, rr.timeoutMs, cReqVec,
-		nreqIn, &nreqOut, &rr.qinfo))
-	if err == nil {
-		rr.reqVec = rr.reqArray[:nreqOut]
-		for i, _ := range rr.reqVec {
-			rr.totalLen += rr.reqVec[i].length_data
-		}
-	}
-	return err
-}
-
 func (rr *RingReceiver) getNext() bool {
 	if len(rr.reqVec) == 0 {
-		if rr.err = rr.refill(); rr.err != nil {
+		// return borrowed data
+		// retrieve new packets from ring
+		nreqIn, nreqOut := C.int(len(rr.reqArray)), C.int(0)
+		cReqVec := (*C.struct_snf_recv_req)(&rr.reqArray[0])
+		rr.err = retErr(C.refill(rr.ring, rr.timeoutMs, cReqVec,
+			nreqIn, &nreqOut, &rr.qinfo, &rr.totalLen))
+		if rr.err == nil {
+			rr.reqVec = rr.reqArray[:nreqOut]
+		} else {
 			return false
 		}
 	}
@@ -131,7 +149,7 @@ func (rr *RingReceiver) CaptureInfo() (ci gopacket.CaptureInfo) {
 }
 
 // If Next() method returned false, the error
-// may be reviewed here.
+// may be revised here.
 func (rr *RingReceiver) Err() error {
 	return rr.err
 }
