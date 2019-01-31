@@ -35,15 +35,19 @@ import "C"
 import (
 	"syscall"
 	"time"
-
-	"github.com/google/gopacket"
 )
 
-// Filter interface may be applied to RingReceiver and filter
-// out unneeded packets. This interface is satisfied by
-// gopacket/pcap BPF object.
-type Filter interface {
-	Matches(ci gopacket.CaptureInfo, data []byte) bool
+// RawFilter interface may be applied to RingReceiver and filter
+// out unneeded packets.
+type RawFilter interface {
+	Matches(data []byte) bool
+}
+
+// Make a RawFilter out of a function.
+type RawFilterFunc func([]byte) bool
+
+func (f RawFilterFunc) Matches(data []byte) bool {
+	return f(data)
 }
 
 // RingReceiver wraps SNF's borrow-many-return-many model of packets
@@ -54,15 +58,14 @@ type RingReceiver struct {
 	ring             C.snf_ring_t
 	timeoutMs        C.int
 	reqArray, reqVec []C.struct_snf_recv_req
-	reqCurrent       *C.struct_snf_recv_req
+	reqCurrent       *RecvReq
 	qinfo            C.struct_snf_ring_qinfo
 
 	// amount of data to return
 	totalLen C.uint
 	err      error
 
-	ci     gopacket.CaptureInfo
-	filter Filter
+	filter RawFilter
 }
 
 // Create new RingReceiver.
@@ -71,13 +74,20 @@ type RingReceiver struct {
 // snf_ring_recv_many() function.
 func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 	return &RingReceiver{
-		ring:      r.ring,
-		timeoutMs: C.int(timeout.Nanoseconds() / 1000000),
-		reqArray:  make([]C.struct_snf_recv_req, burst),
+		ring:       r.ring,
+		timeoutMs:  C.int(dur2ms(timeout)),
+		reqArray:   make([]C.struct_snf_recv_req, burst),
+		reqCurrent: &RecvReq{},
 	}
 }
 
-func (rr *RingReceiver) getNext() bool {
+// Get next packet out of ring. If true, the operation
+// is a success, otherwise you should halt all actions
+// on the receiver until Err() error is examined and
+// needed actions are performed.
+//
+// Packet is returned as is with no filtering performed.
+func (rr *RingReceiver) RawNext() bool {
 	if len(rr.reqVec) == 0 {
 		// return borrowed data
 		// retrieve new packets from ring
@@ -93,9 +103,8 @@ func (rr *RingReceiver) getNext() bool {
 	}
 
 	// some packets are waiting
-	rr.reqCurrent = &rr.reqVec[0]
+	convert(rr.reqCurrent, &rr.reqVec[0])
 	rr.reqVec = rr.reqVec[1:]
-	rr.makeCaptureInfo()
 	return true
 }
 
@@ -103,9 +112,11 @@ func (rr *RingReceiver) getNext() bool {
 // is a success, otherwise you should halt all actions
 // on the receiver until Err() error is examined and
 // needed actions are performed.
+//
+// Run supplied filter on the packet.
 func (rr *RingReceiver) Next() bool {
-	for rr.getNext() {
-		if rr.filter == nil || rr.filter.Matches(rr.CaptureInfo(), rr.Data()) {
+	for rr.RawNext() {
+		if rr.filter == nil || rr.filter.Matches(rr.Data()) {
 			return true
 		}
 	}
@@ -114,8 +125,10 @@ func (rr *RingReceiver) Next() bool {
 }
 
 // Fill in the user supplied RecvReq packet descriptor.
-func (rr *RingReceiver) RecvReq(req *RecvReq) {
-	convert(req, rr.reqCurrent)
+// This will return privately held instance of RecvReq
+// so make a copy if you want to retain it.
+func (rr *RingReceiver) RecvReq() *RecvReq {
+	return rr.reqCurrent
 }
 
 // Get retrieved packet's data. Please note that the
@@ -124,7 +137,7 @@ func (rr *RingReceiver) RecvReq(req *RecvReq) {
 // The consecutive Next() call may erase this slice
 // without prior notice.
 func (rr *RingReceiver) Data() []byte {
-	return getData(rr.reqCurrent)
+	return rr.RecvReq().Pkt
 }
 
 // How many packets are cached, i.e. left to read
@@ -132,20 +145,6 @@ func (rr *RingReceiver) Data() []byte {
 // Mostly used for testing purposes.
 func (rr *RingReceiver) Avail() int {
 	return len(rr.reqVec)
-}
-
-func (rr *RingReceiver) makeCaptureInfo() {
-	rc := rr.reqCurrent
-	rr.ci.CaptureLength = int(rc.length)
-	rr.ci.InterfaceIndex = int(rc.portnum)
-	rr.ci.Length = rr.ci.CaptureLength
-	rr.ci.Timestamp = time.Unix(0, int64(rc.timestamp))
-	return
-}
-
-// Return gopacket.CaptureInfo for retrieved packet.
-func (rr *RingReceiver) CaptureInfo() (ci gopacket.CaptureInfo) {
-	return rr.ci
 }
 
 // If Next() method returned false, the error
@@ -174,27 +173,11 @@ func (rr *RingReceiver) Free() error {
 	return nil
 }
 
-// Set Filter on the receiver. If set, the Next() and
+// Set RawFilter on the receiver. If set, the Next() and
 // LoopNext() would not return until a packet matches
-// filter. Hint: BPF filter from gopacket package
-// satisfies Filter interface.
-func (rr *RingReceiver) SetFilter(f Filter) {
+// filter.
+func (rr *RingReceiver) SetRawFilter(f RawFilter) {
 	rr.filter = f
-}
-
-var _ gopacket.ZeroCopyPacketDataSource = (*RingReceiver)(nil)
-
-// Another packet retrieval capability which satisfies
-// gopacket.ZeroCopyPacketDataSource interface.
-func (rr *RingReceiver) ZeroCopyReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
-	if !rr.LoopNext() {
-		err = rr.Err()
-	} else {
-		data = rr.Data()
-		ci = rr.CaptureInfo()
-	}
-
-	return
 }
 
 // Similar to Next() method but this one loops if EAGAIN

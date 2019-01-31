@@ -229,6 +229,30 @@ type RingStats struct {
 	NicPktDropped uint64
 }
 
+// Receive timeout to control how the function blocks for the
+// next packet.
+func dur2ms(d time.Duration) int {
+	// If the value is less than 0, the function can block indefinitely.
+	if d < 0 {
+		return -1
+	}
+	// if timeout is greater than 0, the caller indicates
+	// a desired wait time in milliseconds. With a non-zero wait
+	// time, the function only blocks if there are no outstanding
+	// packets.
+	if ms := int(d.Nanoseconds() / 1000000); ms > 0 {
+		return ms
+	}
+
+	// "If the value is 0, the function is guaranteed to never
+	// enter a blocking state and returns EAGAIN unless there is a packet
+	// waiting."
+	// Author commentary: During heavy workload, timeout 0 may cause
+	// other applications working on the same port to experience EINVAL
+	// error. So timeout 0 will be reset to 1ms.
+	return 1
+}
+
 // Initializes the sniffer library.
 func Init() error {
 	return retErr(C.snf_init(C.SNF_VERSION_API))
@@ -613,7 +637,7 @@ func (r *Ring) PortInfo() (*RingPortInfo, error) {
 // is done processing the previous packet.  The same assumption is made
 // when the ring is closed (ring's Close() method).
 func (r *Ring) Recv(timeout time.Duration, req *RecvReq) error {
-	ms := int(timeout.Nanoseconds() / 1000000) // milliseconds
+	ms := dur2ms(timeout)
 	var rc C.struct_snf_recv_req
 	err := retErr(C.snf_ring_recv(r.ring, C.int(ms), &rc))
 	if err == nil {
