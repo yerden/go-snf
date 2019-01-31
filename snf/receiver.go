@@ -1,35 +1,29 @@
 package snf
 
 // #include <snf.h>
-// int refill(
-//   snf_ring_t ring,
-//   int timeout_ms,
-//   struct snf_recv_req *req_vector,
-//   int nreq_in, int *nreq_out,
-//   struct snf_ring_qinfo *qinfo, uint32_t *totlen) {
+// int
+// refill(snf_ring_t ring,
+//        int timeout_ms,
+//        struct snf_recv_req *req_vector,
+//        int nreq_in, int *nreq_out,
+//        struct snf_ring_qinfo *qinfo, uint32_t * totlen)
+// {
 //  int rc;
 //  uint32_t len = *totlen;
-//  if (len) {
-//   if ((rc = snf_ring_return_many(ring, len, NULL)) != 0) {
-//    return rc;
-//   }
-//  }
+//  if (len && ((rc = snf_ring_return_many(ring, len, NULL)) != 0))
+//   return rc;
 //
-//  len = 0;
 //  int out;
 //  rc = snf_ring_recv_many(ring, timeout_ms,
-//    req_vector, nreq_in, &out, qinfo);
-//  if (rc != 0) {
-//   return rc;
-//  }
+//     req_vector, nreq_in, &out, qinfo);
+//  if (rc != 0)
+//   out = 0;
 //
-//  for (rc = 0; rc < out; rc++) {
-//   len += req_vector[rc].length_data;
-//  }
 //  *nreq_out = out;
-//  *totlen = len;
+//  for (len = 0; out > 0; len += req_vector[--out].length_data) ;
 //
-//  return 0;
+//  *totlen = len;
+//  return rc;
 // }
 import "C"
 import (
