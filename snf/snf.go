@@ -24,7 +24,6 @@ in case you work with gopacket/pcap.
 package snf
 
 import (
-	"reflect"
 	"time"
 	"unsafe"
 )
@@ -151,10 +150,8 @@ type RingPortInfo struct {
 	PortCnt uint32
 	// Which ports deliver to this receive ring
 	Portmask uint32
-	// Address of data ring
-	DataAddr unsafe.Pointer
-	// Size of the data ring
-	DataSize uintptr
+	// Ring data
+	Data []byte
 }
 
 // Queue consumption information.
@@ -595,8 +592,7 @@ func (r *Ring) PortInfo() (*RingPortInfo, error) {
 		QSize:    uintptr(rc.q_size),
 		PortCnt:  uint32(rc.portcnt),
 		Portmask: uint32(rc.portmask),
-		DataAddr: unsafe.Pointer(uintptr(rc.data_addr)),
-		DataSize: uintptr(rc.data_size),
+		Data:     array2Slice(uintptr(rc.data_addr), int(rc.data_size)),
 	}, err
 }
 
@@ -654,10 +650,6 @@ func convert(req *RecvReq, rc *C.struct_snf_recv_req) {
 	req.HWHash = uint32(rc.hw_hash)
 }
 
-func getData(rc *C.struct_snf_recv_req) (data []byte) {
-	sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
-	sh.Data = uintptr(unsafe.Pointer(rc.pkt_addr))
-	sh.Len = int(rc.length)
-	sh.Cap = sh.Len
-	return
+func getData(rc *C.struct_snf_recv_req) []byte {
+	return array2Slice(uintptr(rc.pkt_addr), int(rc.length))
 }
