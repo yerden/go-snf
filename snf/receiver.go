@@ -167,11 +167,8 @@ func (rr *RingReceiver) RingQInfo() (q RingQInfo) {
 // upon and only upon finishing working on the
 // receiver.
 func (rr *RingReceiver) Free() error {
-	if sz := rr.totalLen; sz > 0 {
-		rr.totalLen = 0
-		return retErr(C.snf_ring_return_many(rr.ring, sz, &rr.qinfo))
-	}
-	return nil
+	d := int32(-1)
+	return retErr(C.snf_ring_return_many(rr.ring, C.uint(d), &rr.qinfo))
 }
 
 // Set RawFilter on the receiver. If set, the Next() and
