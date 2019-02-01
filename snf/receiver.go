@@ -9,9 +9,13 @@ package snf
 //        struct snf_ring_qinfo *qinfo, uint32_t * totlen)
 // {
 //  int rc;
-//  uint32_t len = *totlen;
-//  if (len && ((rc = snf_ring_return_many(ring, len, NULL)) != 0))
+//  uint32_t len = totlen ? *totlen : -1;
+//
+//  if ((rc = snf_ring_return_many(ring, len, NULL)) != 0) {
+//   if (totlen)
+//    *totlen = -1;
 //   return rc;
+//  }
 //
 //  int out;
 //  rc = snf_ring_recv_many(ring, timeout_ms,
@@ -20,9 +24,12 @@ package snf
 //   out = 0;
 //
 //  *nreq_out = out;
-//  for (len = 0; out > 0; len += req_vector[--out].length_data) ;
-//
-//  *totlen = len;
+//  if (totlen) {
+//   len = 0;
+//   while (out)
+//    len += req_vector[--out].length_data;
+//   *totlen = len;
+//  }
 //  return rc;
 // }
 import "C"
