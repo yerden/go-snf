@@ -11,19 +11,30 @@ In order to be able to use google/gopacket (layers etc.) functionality,
 some interfaces in those packages are satisfied. Any feature requests
 regarding extension of such integration are welcomed.
 
-Currently, the package does not provide explicit BPF functionality since
-the BPF compiler is available in libpcap library only and such dependency
-would be an overkill. Filter interface is provided in the package which
-mimics the BPF behaviour in gopacket/pcap package.
+The package utilizes BPF virtual machine from original google/gopacket/pcap
+package and also may use golang.org/x/net/bpf implementation. Tests show
+that native net/bpf implementation is pretty much faster right now but
+staying tuned is advised for it may change in the future.
+Filter interface is provided in the package which mimics the BPF behaviour
+in google/gopacket/pcap package.
 
 Most part of the package is a pretty much straightforward SNF API
 wrappers. On top of that, RingReceiver is provided which wraps bulk
 packet operation. RingReceiver also satisfies gopacket.ZeroCopyPacketDataSource
-in case you work with gopacket/pcap.
+in case you work with google/gopacket/pcap.
 */
 package snf
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"os/signal"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 	"unsafe"
 )
@@ -31,14 +42,6 @@ import (
 // #cgo CFLAGS: -I/opt/snf/include
 // #cgo LDFLAGS: -L/opt/snf/lib -lsnf
 // #include <snf.h>
-// int getportmask(uint32_t *l, uint32_t *v) {
-//   int x;
-//   int res = snf_getportmask_linkup(l, &x);
-//   if (res < 0) {
-//     return res;
-//   }
-//   return snf_getportmask_valid(v, &x);
-// }
 import "C"
 
 // Underlying port's state (DOWN or UP)
@@ -143,7 +146,7 @@ type IfAddrs struct {
 // Receive ring information
 type RingPortInfo struct {
 	// Single ring
-	*Ring
+	Ring unsafe.Pointer
 	// Size of the data queue
 	QSize uintptr
 	// How many physical ports deliver to this receive ring
@@ -191,12 +194,32 @@ type RecvReq struct {
 
 // Device handle.
 type Handle struct {
-	dev C.snf_handle_t
+	dev     C.snf_handle_t
+	rings   map[*Ring]*int32
+	mtx     sync.Mutex
+	wg      sync.WaitGroup
+	closeCh chan bool
+	sigCh   chan os.Signal
+	closed  int32
+}
+
+func makeHandle(dev C.snf_handle_t) *Handle {
+	return &Handle{
+		dev:     dev,
+		rings:   make(map[*Ring]*int32),
+		closeCh: make(chan bool),
+		sigCh:   make(chan os.Signal, 10)}
 }
 
 // Ring handle.
 type Ring struct {
-	ring C.snf_ring_t
+	ring   C.snf_ring_t
+	h      *Handle
+	closed int32
+}
+
+func makeRing(ring C.snf_ring_t, h *Handle) *Ring {
+	return &Ring{ring, h, 0}
 }
 
 // Structure to return statistics from a ring.  The Hardware-specific
@@ -282,6 +305,36 @@ func GetIfAddrs() ([]IfAddrs, error) {
 	return res, nil
 }
 
+func getIfAddr(isfit func(*IfAddrs) bool) (*IfAddrs, error) {
+	var ifa []IfAddrs
+	ifa, err := GetIfAddrs()
+	if err != nil {
+		return nil, err
+	}
+	for i, _ := range ifa {
+		if isfit(&ifa[i]) {
+			return &ifa[i], nil
+		}
+	}
+	return nil, syscall.Errno(syscall.ENODEV)
+}
+
+// Get a Sniffer-capable ethernet devices with matching
+// MAC address.
+func GetIfAddrByHW(addr net.HardwareAddr) (*IfAddrs, error) {
+	return getIfAddr(func(x *IfAddrs) bool {
+		return bytes.Compare(addr, x.MACAddr[:]) == 0
+	})
+}
+
+// Get a Sniffer-capable ethernet devices with matching
+// name.
+func GetIfAddrByName(name string) (*IfAddrs, error) {
+	return getIfAddr(func(x *IfAddrs) bool {
+		return x.Name == name
+	})
+}
+
 // Opens a port for sniffing and allocates a device handle using system
 // defaults.
 //
@@ -305,9 +358,8 @@ func GetIfAddrs() ([]IfAddrs, error) {
 //
 // See OpenHandle() for additional information.
 func OpenHandleDefaults(portnum uint32) (*Handle, error) {
-	var dev C.snf_handle_t
-	err := retErr(C.snf_open_defaults(C.uint(portnum), &dev))
-	return &Handle{dev}, err
+	rssFlags := RssIP | RssSrcPort | RssDstPort
+	return OpenHandle(portnum, 0, rssFlags, -1, 0)
 }
 
 // Opens a port for sniffing and allocates a device handle.
@@ -367,13 +419,18 @@ func OpenHandleDefaults(portnum uint32) (*Handle, error) {
 // Sniffer-mode NIC to deliver packets to the host, and this call
 // must occur after at least one ring is opened (OpenRing() method).
 func OpenHandle(portnum uint32, numRings, rssFlags, flags int, dataringSz int64) (*Handle, error) {
+	var h *Handle
 	var dev C.snf_handle_t
 	var rss C.struct_snf_rss_params
 	rss.mode = C.SNF_RSS_FLAGS
 	// workaround C 'union'
 	*(*int)(unsafe.Pointer(&rss.params[0])) = rssFlags
 	err := retErr(C.snf_open(C.uint(portnum), C.int(numRings), &rss, C.long(dataringSz), C.int(flags), &dev))
-	return &Handle{dev}, err
+	if err == nil {
+		h = makeHandle(dev)
+		defer h.houseKeep()
+	}
+	return h, err
 }
 
 // Get link status on opened handle
@@ -421,7 +478,6 @@ func (h *Handle) Start() error {
 // Start() or until the port is closed.  The NIC only resumes
 // delivering packets when the port is closed, not when traffic is
 // stopped.
-//
 func (h *Handle) Stop() error {
 	return retErr(C.snf_stop(h.dev))
 }
@@ -439,8 +495,27 @@ func (h *Handle) Stop() error {
 // If successful, all resources allocated at open time are
 // unallocated and the device switches from Sniffer mode to Ethernet mode
 // such that the Ethernet driver resumes receiving packets.
-func (h *Handle) Close() error {
-	return retErr(C.snf_close(h.dev))
+func (h *Handle) Close() (err error) {
+	h.mtx.Lock()
+	if h.closed != 0 {
+		// already closed
+		h.mtx.Unlock()
+		return
+	}
+	err = retErr(C.snf_close(h.dev))
+	if err == nil {
+		// cancel subscription to signals if any
+		signal.Stop(h.sigCh)
+		h.closed = 1
+		h.mtx.Unlock()
+		// attempt to close housekeeping
+		select {
+		case h.closeCh <- true:
+		default:
+		}
+	}
+	h.mtx.Unlock()
+	return
 }
 
 // Opens the next available ring
@@ -455,10 +530,11 @@ func (h *Handle) Close() error {
 //
 // If successful, a call to Start() method is required to the
 // Sniffer-mode NIC to deliver packets to the host.
-func (h *Handle) OpenRing() (*Ring, error) {
-	var r C.snf_ring_t
-	err := retErr(C.snf_ring_open(h.dev, &r))
-	return &Ring{r}, err
+func (h *Handle) OpenRing() (ring *Ring, err error) {
+	// from the description of snf_ring_open_id() function,
+	// if the id argument is -1 it "behaves as if snf_ring_open()
+	// was called"
+	return h.OpenRingId(-1)
 }
 
 // Opens a ring from an opened port.
@@ -478,10 +554,61 @@ func (h *Handle) OpenRing() (*Ring, error) {
 //
 // If successful, a call to Handle's Start() is required to the
 // Sniffer-mode NIC to deliver packets to the host.
-func (h *Handle) OpenRingId(id int) (*Ring, error) {
+func (h *Handle) OpenRingId(id int) (ring *Ring, err error) {
+	h.mtx.Lock()
+	defer h.mtx.Unlock()
 	var r C.snf_ring_t
-	err := retErr(C.snf_ring_open_id(h.dev, C.int(id), &r))
-	return &Ring{r}, err
+	if err = retErr(C.snf_ring_open_id(h.dev, C.int(id), &r)); err == nil {
+		ring = makeRing(r, h)
+		h.rings[ring] = &ring.closed
+	}
+	return
+}
+
+// Get a list of all rings opened through
+// this handle.
+func (h *Handle) Rings() (r []*Ring) {
+	h.mtx.Lock()
+	defer h.mtx.Unlock()
+	for ring, _ := range h.rings {
+		r = append(r, ring)
+	}
+	return
+}
+
+func (h *Handle) houseKeep() {
+	wg := &h.wg
+
+	wg.Add(1)
+	go func() {
+		// notify that this Handle is down
+		// as soon as we're out of here
+		defer wg.Done()
+		select {
+		case sig := <-h.sigCh:
+			// signal arrived
+			fmt.Printf("SNF handle caught %v\n", sig)
+			rings := h.Rings()
+			for _, r := range rings {
+				r.Close()
+			}
+			h.Close()
+		case <-h.closeCh:
+			// manual close, do nothing
+		}
+	}()
+}
+
+// Waits until the Handle is successfully Close()-d.
+func (h *Handle) Wait() {
+	wg := &h.wg
+	defer wg.Wait()
+}
+
+// Returns a channel for signal notifications. signal.Notify()
+// may then be used on this channel.
+func (h *Handle) SigChannel() chan<- os.Signal {
+	return h.sigCh
 }
 
 // Close a ring
@@ -498,9 +625,20 @@ func (h *Handle) OpenRingId(id int) (*Ring, error) {
 // The user has processed the last packet obtained with
 // Recv() and such and the device can safely be closed via
 // Handle's Close() if all other rings are also closed.
-
+//
+// If a ring is closed, all receive operations with that ring
+// will return io.EOF error.
 func (r *Ring) Close() error {
-	return retErr(C.snf_ring_close(r.ring))
+	h := r.h
+	h.mtx.Lock()
+	defer h.mtx.Unlock()
+	if closed, ok := h.rings[r]; ok {
+		defer delete(h.rings, r)
+		if atomic.SwapInt32(closed, 1) == 0 {
+			return retErr(C.snf_ring_close(r.ring))
+		}
+	}
+	return nil
 }
 
 // Get Timesource information from opened handle
@@ -524,9 +662,18 @@ func (h *Handle) TimeSourceState() (int, error) {
 // ENODEV is returned in case of an error
 // obtaining port information.
 func PortMask() (linkup, valid uint32, err error) {
-	var l, v C.uint
-	err = retErr(C.getportmask(&l, &v))
-	return uint32(l), uint32(v), err
+	var ifa []IfAddrs
+	ifa, err = GetIfAddrs()
+	if err == nil {
+		for _, ifaddr := range ifa {
+			bit := uint32(1) << ifaddr.PortNum
+			valid |= bit
+			if ifaddr.LinkState == LinkUp {
+				linkup |= bit
+			}
+		}
+	}
+	return
 }
 
 // Sets the application ID.
@@ -588,7 +735,7 @@ func (r *Ring) PortInfo() (*RingPortInfo, error) {
 	var rc C.struct_snf_ring_portinfo
 	err := retErr(C.snf_ring_portinfo(r.ring, &rc))
 	return &RingPortInfo{
-		Ring:     &Ring{rc.ring},
+		Ring:     unsafe.Pointer(rc.ring),
 		QSize:    uintptr(rc.q_size),
 		PortCnt:  uint32(rc.portcnt),
 		Portmask: uint32(rc.portmask),
@@ -633,6 +780,9 @@ func (r *Ring) PortInfo() (*RingPortInfo, error) {
 // is done processing the previous packet.  The same assumption is made
 // when the ring is closed (ring's Close() method).
 func (r *Ring) Recv(timeout time.Duration, req *RecvReq) error {
+	if atomic.LoadInt32(&r.closed) != 0 {
+		return io.EOF
+	}
 	ms := dur2ms(timeout)
 	var rc C.struct_snf_recv_req
 	err := retErr(C.snf_ring_recv(r.ring, C.int(ms), &rc))

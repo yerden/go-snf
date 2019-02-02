@@ -34,6 +34,8 @@ package snf
 // }
 import "C"
 import (
+	"io"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -57,6 +59,7 @@ func (f RawFilterFunc) Matches(data []byte) bool {
 // with gopacket's layers decoding abilities.
 type RingReceiver struct {
 	ring             C.snf_ring_t
+	closed           *int32
 	timeoutMs        C.int
 	reqArray, reqVec []C.struct_snf_recv_req
 	reqCurrent       *RecvReq
@@ -76,6 +79,7 @@ type RingReceiver struct {
 func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 	return &RingReceiver{
 		ring:       r.ring,
+		closed:     &r.closed,
 		timeoutMs:  C.int(dur2ms(timeout)),
 		reqArray:   make([]C.struct_snf_recv_req, burst),
 		reqCurrent: &RecvReq{},
@@ -90,6 +94,10 @@ func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 // Packet is returned as is with no filtering performed.
 func (rr *RingReceiver) RawNext() bool {
 	if len(rr.reqVec) == 0 {
+		if atomic.LoadInt32(rr.closed) != 0 {
+			rr.err = io.EOF
+			return false
+		}
 		// return borrowed data
 		// retrieve new packets from ring
 		nreqIn, nreqOut := C.int(len(rr.reqArray)), C.int(0)
