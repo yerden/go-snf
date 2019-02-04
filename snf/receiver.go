@@ -9,6 +9,13 @@ package snf
 //        struct snf_ring_qinfo *qinfo, uint32_t * totlen)
 // {
 //  int rc;
+//
+//  if (nreq_in == 1) {
+//   rc = snf_ring_recv(ring, timeout_ms, req_vector);
+//   *nreq_out = (rc == 0);
+//   return rc;
+//  }
+//
 //  uint32_t len = totlen ? *totlen : -1;
 //
 //  if ((rc = snf_ring_return_many(ring, len, NULL)) != 0) {
@@ -76,6 +83,12 @@ type RingReceiver struct {
 // timeout semantics is the same as addressed in Recv() method.
 // burst is the amount of packets received by underlying SNF's
 // snf_ring_recv_many() function.
+//
+// Warning: please be aware that snf_ring_recv_many() doesn't
+// work with aggregated rings (flag AggregatePortMask must be off).
+// If you want to use AggregatePortMask feature, please use
+// burst==1. In that case, RingReceiver will utilize snf_ring_recv()
+// which works in either cases.
 func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 	return &RingReceiver{
 		ring:       r.ring,
