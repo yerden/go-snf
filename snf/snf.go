@@ -513,6 +513,7 @@ func (h *Handle) Close() (err error) {
 		case h.closeCh <- true:
 		default:
 		}
+		return
 	}
 	h.mtx.Unlock()
 	return

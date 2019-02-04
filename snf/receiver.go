@@ -175,8 +175,10 @@ func (rr *RingReceiver) RingQInfo() (q RingQInfo) {
 // upon and only upon finishing working on the
 // receiver.
 func (rr *RingReceiver) Free() error {
-	d := int32(-1)
-	return retErr(C.snf_ring_return_many(rr.ring, C.uint(d), &rr.qinfo))
+	if atomic.LoadInt32(rr.closed) != 0 {
+		return nil
+	}
+	return retErr(C.snf_ring_return_many(rr.ring, rr.totalLen, &rr.qinfo))
 }
 
 // Set RawFilter on the receiver. If set, the Next() and
