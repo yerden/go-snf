@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	snaplen int = 65535
-	packet      = [...]byte{
+	snaplen = 65535
+	packet  = [...]byte{
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // dst mac
 		0x0, 0x11, 0x22, 0x33, 0x44, 0x55, // src mac
 		0x08, 0x0, // ether type
@@ -24,8 +24,8 @@ var (
 		0xaf, 0x14, // src port
 		0x0, 0x50, // dst port
 	}
-	goodBPF string = "ip and tcp and port 80"
-	badBPF  string = "udp and port 80"
+	goodBPF = "ip and tcp and port 80"
+	badBPF  = "udp and port 80"
 )
 
 func newNetBPF(t *testing.T, bpffilter string) RawFilter {

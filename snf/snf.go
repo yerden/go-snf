@@ -342,7 +342,7 @@ func getIfAddr(isfit func(*IfAddrs) bool) (*IfAddrs, error) {
 // MAC address.
 func GetIfAddrByHW(addr net.HardwareAddr) (*IfAddrs, error) {
 	return getIfAddr(func(x *IfAddrs) bool {
-		return bytes.Compare(addr, x.MACAddr[:]) == 0
+		return bytes.Equal(addr, x.MACAddr[:])
 	})
 }
 
