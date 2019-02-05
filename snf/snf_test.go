@@ -129,7 +129,7 @@ func ExampleOpenHandle_second() {
 		return
 	}
 	// Wait() is needed because we should wait
-	// for successfull closing of rings and the handle;
+	// for successful closing of rings and the handle;
 	// this is especially important in main().
 	defer h.Wait()
 	// close handle, it's safe to close handle
