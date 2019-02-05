@@ -312,7 +312,7 @@ func GetIfAddrs() ([]IfAddrs, error) {
 			LinkState: int(ifa.snf_ifa_link_state),
 			LinkSpeed: uint64(ifa.snf_ifa_link_speed),
 		}
-		for i, _ := range newifa.MACAddr {
+		for i := range newifa.MACAddr {
 			newifa.MACAddr[i] = byte(ifa.snf_ifa_macaddr[i])
 		}
 		res = append(res, newifa)
@@ -326,7 +326,7 @@ func getIfAddr(isfit func(*IfAddrs) bool) (*IfAddrs, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i, _ := range ifa {
+	for i := range ifa {
 		if isfit(&ifa[i]) {
 			return &ifa[i], nil
 		}
@@ -584,7 +584,7 @@ func (h *Handle) OpenRingId(id int) (ring *Ring, err error) {
 func (h *Handle) Rings() (r []*Ring) {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
-	for ring, _ := range h.rings {
+	for ring := range h.rings {
 		r = append(r, ring)
 	}
 	return

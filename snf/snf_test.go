@@ -53,7 +53,7 @@ func TestInit(t *testing.T) {
 	assert(t, len(ifa) > 0)
 
 	// handle all ports
-	for i, _ := range ifa {
+	for i := range ifa {
 		h, err := OpenHandleDefaults(ifa[i].PortNum)
 		assert(t, err == nil)
 		assert(t, h != nil)
