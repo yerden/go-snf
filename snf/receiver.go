@@ -152,9 +152,9 @@ func (rr *RingReceiver) Next() bool {
 	return false
 }
 
-// RecvReq fills in the user supplied RecvReq packet descriptor.
-// This will return privately held instance of RecvReq
-// so make a copy if you want to retain it.
+// RecvReq returns current packet descriptor. This descriptor
+// points to privately held instance of RecvReq so make a copy
+// if you want to retain it.
 func (rr *RingReceiver) RecvReq() *RecvReq {
 	return rr.reqCurrent
 }

@@ -778,17 +778,16 @@ func (r *Ring) PortInfo() (*RingPortInfo, error) {
 // EAGAIN (and not ETIMEDOUT).  In all cases, users should expect that
 // the function may return EINTR as the result of signal delivery.
 //
-// req is a Receive Packet structure, only updated when a the
-// function returns 0 for a successful packet receive
-// (RecvReq).
+// req is a Receive Packet structure, only updated when the function
+// returns 0 for a successful packet receive (RecvReq).
 //
 // Return values:
 // 0 is a successful packet delivery, recv_req is updated with packet
 // information.
-// EINTR means the call was interrupted by a signal handler
-// EAGAIN means that no packets available (only when timeout is >= 0).
+// EINTR means the call was interrupted by a signal handler.
+// EAGAIN means that no packets are available (only when timeout is >= 0).
 //
-// The packet returned always points directly into the receive
+// The returned packet always points directly into the receive
 // ring where the NIC has DMAed the packet (there are no copies).  As
 // such, the user obtains a pointer to library/driver allocated memory.
 // Users can modify the contents of the packets but should remain within

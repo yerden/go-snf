@@ -27,7 +27,7 @@ func (f FilterFunc) Matches(ci gopacket.CaptureInfo, data []byte) bool {
 	return f(ci, data)
 }
 
-// SetFilter Sets a Filter on the receiver. If set, the Next() and
+// SetFilter sets a Filter on the receiver. If set, the Next() and
 // LoopNext() would not return until a packet matches
 // filter.
 //

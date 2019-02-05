@@ -146,6 +146,10 @@ func ExampleOpenHandle_second() {
 		syscall.SIGSEGV,
 	)
 
+	// start capturing traffic
+	if err := h.Start(); err != nil {
+		return
+	}
 	var wg sync.WaitGroup
 	// wait for goroutines to exit
 	defer wg.Wait()
@@ -195,6 +199,11 @@ func ExampleRingReceiver() {
 	)
 	// if we exit, return all unclaimed packets to ring.
 	defer recv.Free()
+
+	// start capturing traffic
+	if err := h.Start(); err != nil {
+		return
+	}
 
 	// process traffic in bufio.Scanner-like way
 	for recv.LoopNext() {
