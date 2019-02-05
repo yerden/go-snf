@@ -12,6 +12,13 @@ type Filter interface {
 	Matches(ci gopacket.CaptureInfo, data []byte) bool
 }
 
+// Make a Filter out of a function.
+type FilterFunc func(gopacket.CaptureInfo, []byte) bool
+
+func (f FilterFunc) Matches(ci gopacket.CaptureInfo, data []byte) bool {
+	return f(ci, data)
+}
+
 // Set RawFilter on the receiver. If set, the Next() and
 // LoopNext() would not return until a packet matches
 // filter.
