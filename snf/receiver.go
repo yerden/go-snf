@@ -1,3 +1,8 @@
+// Copyright 2019 Yerden Zhumabekov. All rights reserved.
+//
+// Use of this source code is governed by MIT license which
+// can be found in the LICENSE file in the root of the source
+// tree.
 package snf
 
 // #include <snf.h>
