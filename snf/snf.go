@@ -22,6 +22,15 @@ Most part of the package is a pretty much straightforward SNF API
 wrappers. On top of that, RingReceiver is provided which wraps bulk
 packet operation. RingReceiver also satisfies gopacket.ZeroCopyPacketDataSource
 in case you work with google/gopacket/pcap.
+
+It is extremely important from the system point of view that all the rings
+and handles are properly closed upon program exit. Thus, some work was
+done to handle signals in this library with minimal intrusion. It is
+programmer's choice of whether to use this package's signal handling or
+devise a custom one.
+
+Some examples are provided to show various use cases, features, limitations
+and so on.
 */
 package snf
 
@@ -336,9 +345,7 @@ func GetIfAddrByName(name string) (*IfAddrs, error) {
 }
 
 // Opens a port for sniffing and allocates a device handle using system
-// defaults.
-//
-// Open device for single or multi-ring operation
+// defaults. Single and multi-ring operation is possible.
 //
 // This function is a simplified version of OpenHandle() and ensures that
 // the resulting device is opened according to system defaults.  Since
