@@ -43,7 +43,6 @@ import "C"
 import (
 	"io"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -187,6 +186,12 @@ func (rr *RingReceiver) RingQInfo() (q RingQInfo) {
 // exposed to the user. Usually you should do this
 // upon and only upon finishing working on the
 // receiver.
+//
+// Note that now, running this function is redundant
+// if you don't intend to use underlying ring further
+// until it Close()-s. Nevertheless, the use of this
+// function is encouraged anyway as a matter of good
+// code style.
 func (rr *RingReceiver) Free() error {
 	if atomic.LoadInt32(rr.closed) != 0 {
 		return nil
@@ -206,7 +211,7 @@ func (rr *RingReceiver) SetRawFilter(f RawFilter) {
 // should be polled again.
 func (rr *RingReceiver) LoopNext() bool {
 	for !rr.Next() {
-		if rr.Err() != syscall.Errno(syscall.EAGAIN) {
+		if IsEagain(rr.Err()) {
 			return false
 		}
 	}
