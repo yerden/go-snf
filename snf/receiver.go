@@ -3,6 +3,7 @@
 // Use of this source code is governed by MIT license which
 // can be found in the LICENSE file in the root of the source
 // tree.
+
 package snf
 
 // #include <snf.h>
@@ -57,9 +58,10 @@ type RawFilter interface {
 	Matches(data []byte) bool
 }
 
-// Make a RawFilter out of a function.
+// RawFilterFunc implements RawFilter interface.
 type RawFilterFunc func([]byte) bool
 
+// Matches returns true if packet matches Filter condition.
 func (f RawFilterFunc) Matches(data []byte) bool {
 	return f(data)
 }
@@ -83,7 +85,7 @@ type RingReceiver struct {
 	filter RawFilter
 }
 
-// Create new RingReceiver.
+// NewReceiver creates new RingReceiver.
 // timeout semantics is the same as addressed in Recv() method.
 // burst is the amount of packets received by underlying SNF's
 // snf_ring_recv_many() function.
@@ -103,7 +105,7 @@ func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 	}
 }
 
-// Get next packet out of ring. If true, the operation
+// RawNext gets next packet out of ring. If true, the operation
 // is a success, otherwise you should halt all actions
 // on the receiver until Err() error is examined and
 // needed actions are performed.
@@ -134,7 +136,7 @@ func (rr *RingReceiver) RawNext() bool {
 	return true
 }
 
-// Get next packet out of ring. If true, the operation
+// Next gets next packet out of ring. If true, the operation
 // is a success, otherwise you should halt all actions
 // on the receiver until Err() error is examined and
 // needed actions are performed.
@@ -150,14 +152,14 @@ func (rr *RingReceiver) Next() bool {
 	return false
 }
 
-// Fill in the user supplied RecvReq packet descriptor.
+// RecvReq fills in the user supplied RecvReq packet descriptor.
 // This will return privately held instance of RecvReq
 // so make a copy if you want to retain it.
 func (rr *RingReceiver) RecvReq() *RecvReq {
 	return rr.reqCurrent
 }
 
-// Get retrieved packet's data. Please note that the
+// Data gets retrieved packet's data. Please note that the
 // underlying array of returned slice is owned by
 // SNF API. Please make a copy if you want to retain it.
 // The consecutive Next() call may erase this slice
@@ -166,20 +168,21 @@ func (rr *RingReceiver) Data() []byte {
 	return rr.RecvReq().Pkt
 }
 
-// How many packets are cached, i.e. left to read
+// Avail shows how many packets are cached, i.e. left to read
 // without calling SNF API to retrieve new packets.
 // Mostly used for testing purposes.
 func (rr *RingReceiver) Avail() int {
 	return len(rr.reqVec)
 }
 
-// If Next() method returned false, the error
-// may be revised here.
+// Err returns error which was encountered during the last
+// RingReceiver operation on a ring. If Next() method returned
+// false, the error  may be revised here.
 func (rr *RingReceiver) Err() error {
 	return rr.err
 }
 
-// Access the most recent Ring queue info.
+// RingQInfo provides access the most recent Ring queue info.
 func (rr *RingReceiver) RingQInfo() (q RingQInfo) {
 	q.Avail = uintptr(rr.qinfo.q_avail)
 	q.Borrowed = uintptr(rr.qinfo.q_borrowed)
@@ -187,7 +190,7 @@ func (rr *RingReceiver) RingQInfo() (q RingQInfo) {
 	return
 }
 
-// Return all packets that were retrieved but not
+// Free returns all packets that were retrieved but not
 // exposed to the user. Usually you should do this
 // upon and only upon finishing working on the
 // receiver.
@@ -204,14 +207,14 @@ func (rr *RingReceiver) Free() error {
 	return retErr(C.snf_ring_return_many(rr.ring, rr.totalLen, &rr.qinfo))
 }
 
-// Set RawFilter on the receiver. If set, the Next() and
+// SetRawFilter sets RawFilter on the receiver. If set, the Next() and
 // LoopNext() would not return until a packet matches
 // filter.
 func (rr *RingReceiver) SetRawFilter(f RawFilter) {
 	rr.filter = f
 }
 
-// Similar to Next() method but this one loops if EAGAIN
+// LoopNext is similar to Next() method but this one loops if EAGAIN
 // is encountered. It means that timeout hit and the port
 // should be polled again.
 func (rr *RingReceiver) LoopNext() bool {

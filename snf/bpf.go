@@ -3,6 +3,7 @@
 // Use of this source code is governed by MIT license which
 // can be found in the LICENSE file in the root of the source
 // tree.
+
 package snf
 
 import (
@@ -13,6 +14,8 @@ import (
 	"golang.org/x/net/bpf"
 )
 
+// NetBPF is an instance of a BPF virtual machine
+// implemented in golang.org/x/net/bpf package.
 type NetBPF struct {
 	internal *bpf.VM
 }
@@ -20,6 +23,7 @@ type NetBPF struct {
 var _ RawFilter = (*NetBPF)(nil)
 var _ Filter = (*pcap.BPF)(nil)
 
+// Matches return true if packet matches the filter condition.
 func (nf *NetBPF) Matches(data []byte) bool {
 	res, err := nf.internal.Run(data)
 
@@ -30,7 +34,7 @@ func (nf *NetBPF) Matches(data []byte) bool {
 	return res != 0
 }
 
-// Match packets using net/bpf's VM
+// NewNetBPF returns filter which matches packets using net/bpf's VM.
 func NewNetBPF(snaplen int, bpffilter string) (RawFilter, error) {
 	pcapInstructions, _ := pcap.CompileBPFFilter(layers.LinkTypeEthernet, snaplen, bpffilter)
 	rawInstructions := make([]bpf.RawInstruction, len(pcapInstructions))
@@ -55,7 +59,7 @@ func NewNetBPF(snaplen int, bpffilter string) (RawFilter, error) {
 	return &NetBPF{internal: vm}, nil
 }
 
-// Match packets using gopacket/pcap's BPF
+// NewPcapBPF returns filter which matches packets using gopacket/pcap's BPF.
 func NewPcapBPF(snaplen int, bpffilter string) (Filter, error) {
 	return pcap.NewBPF(layers.LinkTypeEthernet, snaplen, bpffilter)
 }

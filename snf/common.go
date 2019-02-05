@@ -3,6 +3,7 @@
 // Use of this source code is governed by MIT license which
 // can be found in the LICENSE file in the root of the source
 // tree.
+
 package snf
 
 import (
@@ -30,22 +31,22 @@ func array2Slice(ptr uintptr, length int) (data []byte) {
 	return
 }
 
-// Return true if an error is EAGAIN.
+// IsEagain returns true if an error is EAGAIN.
 func IsEagain(err error) bool {
 	return syscall.Errno(syscall.EAGAIN) == err
 }
 
-// Return true if an error is EINVAL.
+// IsEinval returns true if an error is EINVAL.
 func IsEinval(err error) bool {
 	return syscall.Errno(syscall.EINVAL) == err
 }
 
-// Return true if an error is ENODEV.
+// IsEnodev returns true if an error is ENODEV.
 func IsEnodev(err error) bool {
 	return syscall.Errno(syscall.ENODEV) == err
 }
 
-// Return true if an error is EBUSY.
+// IsEbusy returns true if an error is EBUSY.
 func IsEbusy(err error) bool {
 	return syscall.Errno(syscall.EBUSY) == err
 }

@@ -5,7 +5,7 @@
 // tree.
 
 /*
-This is a wrapper for SNF library to support direct interaction with
+Package snf is a wrapper for SNF library to support direct interaction with
 Myricom/CSPI boards.
 
 The purpose of the package is to avoid using libpcap-wrapped SNF
@@ -112,35 +112,37 @@ const (
 )
 
 const (
-	// Device can be process-sharable.  This allows multiple independent
-	// processes to share rings on the capturing device.  This option can be
-	// used to design a custom capture solution but is also used in libpcap
-	// when multiple rings are requested.  In this scenario, each libpcap
-	// device sees a fraction of the traffic if multiple rings are used unless
-	// the RxDuplicate option is used, in which case each libpcap
-	// device sees the same incoming packets.
+	// PShared flag states that device can be process-sharable.  This
+	// allows multiple independent processes to share rings on the
+	// capturing device.  This option can be used to design a custom
+	// capture solution but is also used in libpcap when multiple rings are
+	// requested.  In this scenario, each libpcap device sees a fraction of
+	// the traffic if multiple rings are used unless the RxDuplicate option
+	// is used, in which case each libpcap device sees the same incoming
+	// packets.
 	PShared = C.SNF_F_PSHARED
-	// Device can be opened for port aggregation (or merging).  When this flag
-	// is passed, the portnum parameter in OpenHandle() is interpreted as
-	// a bitmask where each set bit position represents a port number.  The
-	// Sniffer library will then attempt to open every portnum with its bit set
-	// in order to merge the incoming data to the user from multiple ports.
-	// Subsequent calls to OpenRing() return a ring handle that
-	// internally opens a ring on all underlying ports.
+	// AggregatePortMask shows that device can be opened for port aggregation
+	// (or merging).  When this flag is passed, the portnum parameter in
+	// OpenHandle() is interpreted as a bitmask where each set bit position
+	// represents a port number. The  Sniffer library will then attempt to
+	// open every portnum with its bit set in order to merge the incoming data
+	// to the user from multiple ports. Subsequent calls to OpenRing() return
+	// a ring handle that internally opens a ring on all underlying ports.
 	AggregatePortMask = C.SNF_F_AGGREGATE_PORTMASK
-	// Device can duplicate packets to multiple rings as opposed to applying
-	// RSS in order to split incoming packets across rings.  Users should be
-	// aware that with N rings opened, N times the link bandwidth is necessary
-	// to process incoming packets without drops.  The duplication happens in
-	// the host rather than the NIC, so while only up to 10Gbits of traffic
-	// crosses the PCIe, N times that bandwidth is necessary on the host.
+	// RxDuplicate shows that device can duplicate packets to multiple rings
+	// as opposed to applying RSS in order to split incoming packets across
+	// rings.  Users should be aware that with N rings opened, N times the link
+	// bandwidth is necessary to process incoming packets without drops.  The
+	// duplication happens in the host rather than the NIC, so while only up to
+	// 10Gbits of traffic crosses the PCIe, N times that bandwidth is necessary
+	// on the host.
 	//
 	// When duplication is enabled, RSS options are ignored since every packet
 	// is delivered to every ring.
 	RxDuplicate = C.SNF_F_RX_DUPLICATE
 )
 
-// Structure to map Interfaces to Sniffer port numbers
+// IfAddrs is a structure to map Interfaces to Sniffer port numbers.
 type IfAddrs struct {
 	// interface name, as in ifconfig
 	Name string
@@ -158,7 +160,7 @@ type IfAddrs struct {
 	LinkSpeed uint64
 }
 
-// Receive ring information
+// RingPortInfo is a receive ring information.
 type RingPortInfo struct {
 	// Single ring
 	Ring unsafe.Pointer
@@ -172,7 +174,7 @@ type RingPortInfo struct {
 	Data []byte
 }
 
-// Queue consumption information.
+// RingQInfo is a queue consumption information.
 type RingQInfo struct {
 	// Amount of data available not yet received (approximate)
 	Avail uintptr
@@ -182,7 +184,7 @@ type RingQInfo struct {
 	Free uintptr
 }
 
-// Structure to return statistics from an injection handle.  The
+// InjectStats is a sructure to return statistics from an injection handle.  The
 // hardware-specific counters (nic_) apply to all injection handles.
 type InjectStats struct {
 	// Number of packets sent by this injection endpoint
@@ -193,7 +195,7 @@ type InjectStats struct {
 	NicBytesSend uint64
 }
 
-// Structure to describe a packet received on a data ring.
+// RecvReq is a descriptor of a packet received on a data ring.
 type RecvReq struct {
 	// Pointer to packet directly in data ring
 	Pkt []byte
@@ -207,7 +209,9 @@ type RecvReq struct {
 	HWHash uint32
 }
 
-// Device handle.
+// Handle encapsulates a device handle. It also contains
+// all rings allocated through this handle, controls their
+// abnormal closing.
 type Handle struct {
 	dev     C.snf_handle_t
 	rings   map[*Ring]*int32
@@ -237,7 +241,7 @@ func makeRing(ring C.snf_ring_t, h *Handle) *Ring {
 	return &Ring{ring, h, 0}
 }
 
-// Structure to return statistics from a ring.  The Hardware-specific
+// RingStats is a structure to return statistics from a ring.  The Hardware-specific
 // counters apply to all rings as they are counted before any
 // demultiplexing to a ring is applied.
 type RingStats struct {
@@ -288,12 +292,12 @@ func dur2ms(d time.Duration) int {
 	return 1
 }
 
-// Initializes the sniffer library.
+// Init initializes the sniffer library.
 func Init() error {
 	return retErr(C.snf_init(C.SNF_VERSION_API))
 }
 
-// Get a list of Sniffer-capable ethernet devices.
+// GetIfAddrs gets a list of Sniffer-capable ethernet devices.
 func GetIfAddrs() ([]IfAddrs, error) {
 	var res []IfAddrs
 
@@ -334,7 +338,7 @@ func getIfAddr(isfit func(*IfAddrs) bool) (*IfAddrs, error) {
 	return nil, syscall.Errno(syscall.ENODEV)
 }
 
-// Get a Sniffer-capable ethernet devices with matching
+// GetIfAddrByHW gets a Sniffer-capable ethernet devices with matching
 // MAC address.
 func GetIfAddrByHW(addr net.HardwareAddr) (*IfAddrs, error) {
 	return getIfAddr(func(x *IfAddrs) bool {
@@ -342,7 +346,7 @@ func GetIfAddrByHW(addr net.HardwareAddr) (*IfAddrs, error) {
 	})
 }
 
-// Get a Sniffer-capable ethernet devices with matching
+// GetIfAddrByName returns a Sniffer-capable ethernet devices with matching
 // name.
 func GetIfAddrByName(name string) (*IfAddrs, error) {
 	return getIfAddr(func(x *IfAddrs) bool {
@@ -350,8 +354,8 @@ func GetIfAddrByName(name string) (*IfAddrs, error) {
 	})
 }
 
-// Opens a port for sniffing and allocates a device handle using system
-// defaults. Single and multi-ring operation is possible.
+// OpenHandleDefaults opens a port for sniffing and allocates a device
+// handle using system defaults. Single and multi-ring operation is possible.
 //
 // This function is a simplified version of OpenHandle() and ensures that
 // the resulting device is opened according to system defaults.  Since
@@ -375,7 +379,7 @@ func OpenHandleDefaults(portnum uint32) (*Handle, error) {
 	return OpenHandle(portnum, 0, rssFlags, -1, 0)
 }
 
-// Opens a port for sniffing and allocates a device handle.
+// OpenHandle opens a port for sniffing and allocates a device handle.
 //
 // portnum Port numbers can be interpreted as integers for a
 // specific port number or as a mask when
@@ -446,7 +450,7 @@ func OpenHandle(portnum uint32, numRings, rssFlags, flags int, dataringSz int64)
 	return h, err
 }
 
-// Get link status on opened handle
+// LinkState gets link status on opened handle.
 //
 // Returns one of LinkDown or LinkUp.
 //
@@ -459,7 +463,7 @@ func (h *Handle) LinkState() (int, error) {
 	return int(res), err
 }
 
-// Get link speed on opened handle
+// LinkSpeed gets link speed on opened handle.
 //
 // Returns speed in bits-per-second for the link.
 //
@@ -532,7 +536,7 @@ func (h *Handle) Close() (err error) {
 	return
 }
 
-// Opens the next available ring
+// OpenRing opens the next available ring.
 //
 // Ring handle allocated if the call is successful.
 //
@@ -540,7 +544,7 @@ func (h *Handle) Close() (err error) {
 //
 // This function will consider the value of the SNF_RING_ID
 // environment variable.  For more control over ring allocation,
-// consider using OpenRingId() method instead.
+// consider using OpenRingID() method instead.
 //
 // If successful, a call to Start() method is required to the
 // Sniffer-mode NIC to deliver packets to the host.
@@ -548,10 +552,10 @@ func (h *Handle) OpenRing() (ring *Ring, err error) {
 	// from the description of snf_ring_open_id() function,
 	// if the id argument is -1 it "behaves as if snf_ring_open()
 	// was called"
-	return h.OpenRingId(-1)
+	return h.OpenRingID(-1)
 }
 
-// Opens a ring from an opened port.
+// OpenRingID opens a ring from an opened port.
 //
 // ring_id Ring number to open, from 0 to num_rings - 1.  If
 // the value is -1, this function behaves as if
@@ -568,7 +572,7 @@ func (h *Handle) OpenRing() (ring *Ring, err error) {
 //
 // If successful, a call to Handle's Start() is required to the
 // Sniffer-mode NIC to deliver packets to the host.
-func (h *Handle) OpenRingId(id int) (ring *Ring, err error) {
+func (h *Handle) OpenRingID(id int) (ring *Ring, err error) {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
 	var r C.snf_ring_t
@@ -579,7 +583,7 @@ func (h *Handle) OpenRingId(id int) (ring *Ring, err error) {
 	return
 }
 
-// Get a list of all rings opened through
+// Rings returns a list of all rings opened through
 // this handle.
 func (h *Handle) Rings() (r []*Ring) {
 	h.mtx.Lock()
@@ -613,13 +617,13 @@ func (h *Handle) houseKeep() {
 	}()
 }
 
-// Waits until the Handle is successfully Close()-d.
+// Wait until the Handle is successfully Close()-d.
 func (h *Handle) Wait() {
 	wg := &h.wg
 	defer wg.Wait()
 }
 
-// Returns a channel for signal notifications. signal.Notify()
+// SigChannel returns a channel for signal notifications. signal.Notify()
 // may then be used on this channel.
 func (h *Handle) SigChannel() chan<- os.Signal {
 	return h.sigCh
@@ -655,7 +659,7 @@ func (r *Ring) Close() error {
 	return nil
 }
 
-// Get Timesource information from opened handle
+// TimeSourceState returns timesource information from opened handle
 //
 // Returns one of Timesource state constants.
 //
@@ -668,7 +672,7 @@ func (h *Handle) TimeSourceState() (int, error) {
 	return int(res), err
 }
 
-// Get a mask of all Sniffer-capable ports that
+// PortMask returns a mask of all Sniffer-capable ports that
 // have their link state set to UP and a mask
 // of all Sniffer-capable ports.
 // The least significant bit represents port 0.
@@ -690,7 +694,7 @@ func PortMask() (linkup, valid uint32, err error) {
 	return
 }
 
-// Sets the application ID.
+// SetAppID sets the application ID.
 //
 // The user may set the application ID after the call to Init(), but
 // before OpenHandle().  When the application ID is set, Sniffer duplicates
@@ -702,7 +706,7 @@ func PortMask() (linkup, valid uint32, err error) {
 //
 // The user may store the application ID in the environment variable
 // SNF_APP_ID, instead of calling this function.  Both actions have the same
-// effect.  SNF_APP_ID overrides the ID set via SetAppId().
+// effect.  SNF_APP_ID overrides the ID set via SetAppID().
 //
 // The user may not run a mix of processes with valid application IDs (not -1)
 // and processes with no IDs (-1).  Either all processes have valid IDs or
@@ -713,11 +717,11 @@ func PortMask() (linkup, valid uint32, err error) {
 // "no ID".
 //
 // EINVAL is returned if Init() has not been called or id is -1.
-func SetAppId(id int32) error {
+func SetAppID(id int32) error {
 	return retErr(C.snf_set_app_id(C.int(id)))
 }
 
-// Get statistics from a receive ring.
+// Stats returns statistics from a receive ring.
 //
 // This call is provided as a convenience and should not be
 // relied on for time-critical applications or for high levels of
@@ -740,7 +744,7 @@ func (r *Ring) Stats() (*RingStats, error) {
 	}, err
 }
 
-// Returns information for the ring.
+// PortInfo returns information for the ring.
 // For aggregated rings, returns information for each of the physical
 // rings.  It is up to the user to make sure they have allocated enough
 // memory to hold the information for all the physical rings in an
@@ -757,7 +761,7 @@ func (r *Ring) PortInfo() (*RingPortInfo, error) {
 	}, err
 }
 
-// Receive next packet from a receive ring.
+// Recv receives next packet from a receive ring.
 //
 // This function is used to return the next available packet in a receive
 // ring.  The function can block indefinitely, for a specific timeout or

@@ -3,6 +3,7 @@
 // Use of this source code is governed by MIT license which
 // can be found in the LICENSE file in the root of the source
 // tree.
+
 package snf
 
 import (
@@ -17,14 +18,16 @@ type Filter interface {
 	Matches(ci gopacket.CaptureInfo, data []byte) bool
 }
 
-// Make a Filter out of a function.
+// FilterFunc implements Filter interface.
 type FilterFunc func(gopacket.CaptureInfo, []byte) bool
 
+// Matches returns if a packet with its metadata matches
+// filter condition.
 func (f FilterFunc) Matches(ci gopacket.CaptureInfo, data []byte) bool {
 	return f(ci, data)
 }
 
-// Set RawFilter on the receiver. If set, the Next() and
+// SetFilter Sets a Filter on the receiver. If set, the Next() and
 // LoopNext() would not return until a packet matches
 // filter.
 //
@@ -36,7 +39,7 @@ func (rr *RingReceiver) SetFilter(f Filter) {
 	}))
 }
 
-// Return gopacket.CaptureInfo for retrieved packet.
+// CaptureInfo returns gopacket.CaptureInfo metadata for retrieved packet.
 func (req *RecvReq) CaptureInfo() (ci gopacket.CaptureInfo) {
 	ci.CaptureLength = len(req.Pkt)
 	ci.InterfaceIndex = int(req.PortNum)
@@ -48,8 +51,9 @@ func (req *RecvReq) CaptureInfo() (ci gopacket.CaptureInfo) {
 var _ gopacket.ZeroCopyPacketDataSource = (*RingReceiver)(nil)
 var _ gopacket.PacketDataSource = (*RingReceiver)(nil)
 
-// Another packet retrieval capability which satisfies
-// gopacket.ZeroCopyPacketDataSource interface.
+// ZeroCopyReadPacketData reads next packet from receiver and returns
+// packet data, gopacket.CaptureInfo metadata and possibly error.
+// This satisfies gopacket.ZeroCopyPacketDataSource interface.
 func (rr *RingReceiver) ZeroCopyReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
 	if !rr.LoopNext() {
 		err = rr.Err()
@@ -61,8 +65,9 @@ func (rr *RingReceiver) ZeroCopyReadPacketData() (data []byte, ci gopacket.Captu
 	return
 }
 
-// Another packet retrieval capability which satisfies
-// gopacket.PacketDataSource interface.
+// ReadPacketData reads next packet from receiver and returns
+// packet data, gopacket.CaptureInfo metadata and possibly error.
+// This satisfies gopacket.PacketDataSource interface.
 func (rr *RingReceiver) ReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
 	if !rr.LoopNext() {
 		err = rr.Err()
