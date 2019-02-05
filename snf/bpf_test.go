@@ -3,14 +3,13 @@
 // Use of this source code is governed by MIT license which
 // can be found in the LICENSE file in the root of the source
 // tree.
-package snf_test
+package snf
 
 import (
 	"testing"
 	"time"
 
 	"github.com/google/gopacket"
-	"github.com/yerden/go-snf/snf"
 )
 
 var (
@@ -29,16 +28,16 @@ var (
 	badBPF  string = "udp and port 80"
 )
 
-func newNetBPF(t *testing.T, bpffilter string) snf.RawFilter {
-	filter, err := snf.NewNetBPF(snaplen, bpffilter)
+func newNetBPF(t *testing.T, bpffilter string) RawFilter {
+	filter, err := NewNetBPF(snaplen, bpffilter)
 	if err != nil {
 		t.Fatalf("failed create NetBPF: %v", err)
 	}
 	return filter
 }
 
-func newPcapBPF(t *testing.T, bpffilter string) snf.Filter {
-	filter, err := snf.NewPcapBPF(snaplen, bpffilter)
+func newPcapBPF(t *testing.T, bpffilter string) Filter {
+	filter, err := NewPcapBPF(snaplen, bpffilter)
 	if err != nil {
 		t.Fatalf("failed create PcapBPF: %v", err)
 	}
@@ -79,7 +78,7 @@ func TestPcapBPF(t *testing.T) {
 }
 
 func BenchmarkNetBPFGood(b *testing.B) {
-	filter, _ := snf.NewNetBPF(snaplen, goodBPF)
+	filter, _ := NewNetBPF(snaplen, goodBPF)
 
 	for i := 0; i < b.N; i++ {
 		if !filter.Matches(packet[:]) {
@@ -89,7 +88,7 @@ func BenchmarkNetBPFGood(b *testing.B) {
 }
 
 func BenchmarkPcapBPFGood(b *testing.B) {
-	filter, _ := snf.NewPcapBPF(snaplen, goodBPF)
+	filter, _ := NewPcapBPF(snaplen, goodBPF)
 	ci := gopacket.CaptureInfo{
 		InterfaceIndex: 0,
 		CaptureLength:  len(packet),
@@ -105,7 +104,7 @@ func BenchmarkPcapBPFGood(b *testing.B) {
 }
 
 func BenchmarkNetBPFBad(b *testing.B) {
-	filter, _ := snf.NewNetBPF(snaplen, badBPF)
+	filter, _ := NewNetBPF(snaplen, badBPF)
 
 	for i := 0; i < b.N; i++ {
 		if filter.Matches(packet[:]) {
@@ -115,7 +114,7 @@ func BenchmarkNetBPFBad(b *testing.B) {
 }
 
 func BenchmarkPcapBPFBad(b *testing.B) {
-	filter, _ := snf.NewPcapBPF(snaplen, badBPF)
+	filter, _ := NewPcapBPF(snaplen, badBPF)
 	ci := gopacket.CaptureInfo{
 		InterfaceIndex: 0,
 		CaptureLength:  len(packet),
