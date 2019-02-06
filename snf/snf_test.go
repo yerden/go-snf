@@ -18,16 +18,14 @@ import (
 	"github.com/google/gopacket"
 )
 
-func assert(t *testing.T, expected bool) {
-	if t.Helper(); !expected {
-		t.Error("Something's not right")
-	}
-}
-
-func assertFail(t *testing.T, expected bool) {
-	if t.Helper(); !expected {
-		t.Error("Something's not right")
-		t.FailNow()
+func newAssert(t *testing.T, fail bool) func(bool) {
+	return func(expected bool) {
+		if t.Helper(); !expected {
+			t.Error("Something's not right")
+			if fail {
+				t.FailNow()
+			}
+		}
 	}
 }
 
@@ -36,27 +34,29 @@ func handle(ci gopacket.CaptureInfo, data []byte) {
 }
 
 func TestInit(t *testing.T) {
+	assertFail := newAssert(t, true)
+	assert := newAssert(t, false)
 	var err error
 	// set app id
 	err = os.Setenv("SNF_APP_ID", "32")
-	assert(t, err == nil)
+	assert(err == nil)
 
 	// set number of rings to 2
 	err = os.Setenv("SNF_NUM_RINGS", "2")
-	assert(t, err == nil)
+	assert(err == nil)
 
 	err = Init()
-	assertFail(t, err == nil)
+	assertFail(err == nil)
 
 	ifa, err := GetIfAddrs()
-	assert(t, err == nil)
-	assert(t, len(ifa) > 0)
+	assert(err == nil)
+	assert(len(ifa) > 0)
 
 	// handle all ports
 	for i := range ifa {
 		h, err := OpenHandleDefaults(ifa[i].PortNum)
-		assert(t, err == nil)
-		assert(t, h != nil)
+		assert(err == nil)
+		assert(h != nil)
 		defer h.Wait()
 		defer h.Close()
 		signal.Notify(h.SigChannel(),
@@ -67,17 +67,17 @@ func TestInit(t *testing.T) {
 
 		// opening SNF_NUM_RINGS rings
 		r, err := h.OpenRing()
-		assert(t, err == nil)
-		assert(t, r != nil)
+		assert(err == nil)
+		assert(r != nil)
 		defer r.Close()
 
 		r, err = h.OpenRing()
-		assert(t, err == nil)
-		assert(t, r != nil)
+		assert(err == nil)
+		assert(r != nil)
 		defer r.Close()
 
 		r, err = h.OpenRing()
-		assert(t, IsEbusy(err))
+		assert(IsEbusy(err))
 	}
 }
 
