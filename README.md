@@ -5,7 +5,7 @@ Go wrappers for SNFv3 library supplied by CSPI for Myricom PCI-E network boards.
 
 ### Installation
 Non-Go requirements:
-* SNFv3, please refer to [CSPI](www.cspi.com) website for download and installation instructions.
+* SNFv3, please refer to [CSPI](http://www.cspi.com) website for download and installation instructions.
 * `libpcap` library and include headers. Consult your system documentation on how to install them.
 * Tested on Linux environment only (Centos 7, Ubuntu Trusty).
 
