@@ -219,7 +219,7 @@ func (rr *RingReceiver) SetRawFilter(f RawFilter) {
 // should be polled again.
 func (rr *RingReceiver) LoopNext() bool {
 	for !rr.Next() {
-		if IsEagain(rr.Err()) {
+		if !IsEagain(rr.Err()) {
 			return false
 		}
 	}
