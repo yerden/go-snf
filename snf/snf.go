@@ -213,28 +213,43 @@ type RecvReq struct {
 // all rings allocated through this handle, controls their
 // abnormal closing.
 type Handle struct {
-	dev     C.snf_handle_t
-	rings   map[*Ring]*int32
-	mtx     sync.Mutex
-	wg      sync.WaitGroup
-	closeCh chan bool
-	sigCh   chan os.Signal
-	closed  int32
+	dev   C.snf_handle_t
+	rings map[*Ring]*int32
+	mtx   sync.Mutex
+	wg    sync.WaitGroup
+	sigCh chan os.Signal
+
+	// 0   handle is operational
+	// 1   handle is non-operational
+	//     and can only be closed
+	// 2   handle is closed
+	state int32
 }
 
 func makeHandle(dev C.snf_handle_t) *Handle {
 	return &Handle{
-		dev:     dev,
-		rings:   make(map[*Ring]*int32),
-		closeCh: make(chan bool),
-		sigCh:   make(chan os.Signal, 10)}
+		dev:   dev,
+		rings: make(map[*Ring]*int32),
+		sigCh: make(chan os.Signal, 10)}
 }
+
+// states of an object
+const (
+	stateOk int32 = iota
+	stateNotOk
+	stateClosed
+)
 
 // Ring handle.
 type Ring struct {
-	ring   C.snf_ring_t
-	h      *Handle
-	closed int32
+	ring C.snf_ring_t
+	h    *Handle
+
+	// 0   ring is operational
+	// 1   ring is non-operational
+	//     and can only be closed
+	// 2   ring is closed
+	state int32
 }
 
 func makeRing(ring C.snf_ring_t, h *Handle) *Ring {
@@ -458,6 +473,9 @@ func OpenHandle(portnum uint32, numRings, rssFlags, flags int, dataringSz int64)
 // that reads state kept in kernel host memory (i.e. no PCI bus
 // reads).
 func (h *Handle) LinkState() (int, error) {
+	if atomic.LoadInt32(&h.state) != stateOk {
+		return 0, io.EOF
+	}
 	var res uint32
 	err := retErr(C.snf_get_link_state(h.dev, &res))
 	return int(res), err
@@ -471,6 +489,9 @@ func (h *Handle) LinkState() (int, error) {
 // that reads state kept in kernel host memory (i.e. no PCI bus
 // reads).
 func (h *Handle) LinkSpeed() (uint64, error) {
+	if atomic.LoadInt32(&h.state) != stateOk {
+		return 0, io.EOF
+	}
 	var res C.ulong
 	err := retErr(C.snf_get_link_speed(h.dev, &res))
 	return uint64(res), err
@@ -483,6 +504,9 @@ func (h *Handle) LinkSpeed() (uint64, error) {
 // It is safe to restart packet capture via Start() and Stop() methods.
 // This call must be called before any packet can be received.
 func (h *Handle) Start() error {
+	if atomic.LoadInt32(&h.state) != stateOk {
+		return io.EOF
+	}
 	return retErr(C.snf_start(h.dev))
 }
 
@@ -496,6 +520,9 @@ func (h *Handle) Start() error {
 // delivering packets when the port is closed, not when traffic is
 // stopped.
 func (h *Handle) Stop() error {
+	if atomic.LoadInt32(&h.state) != stateOk {
+		return io.EOF
+	}
 	return retErr(C.snf_stop(h.dev))
 }
 
@@ -514,25 +541,15 @@ func (h *Handle) Stop() error {
 // such that the Ethernet driver resumes receiving packets.
 func (h *Handle) Close() (err error) {
 	h.mtx.Lock()
-	if h.closed != 0 {
-		// already closed
-		h.mtx.Unlock()
-		return
-	}
+	defer h.mtx.Unlock()
 	err = retErr(C.snf_close(h.dev))
 	if err == nil {
-		// cancel subscription to signals if any
+		// mark as closed
 		signal.Stop(h.sigCh)
-		h.closed = 1
-		h.mtx.Unlock()
-		// attempt to close housekeeping
-		select {
-		case h.closeCh <- true:
-		default:
-		}
-		return
+		close(h.sigCh)
 	}
-	h.mtx.Unlock()
+
+	// if EBUSY, you should close other rings
 	return
 }
 
@@ -545,6 +562,10 @@ func (h *Handle) Close() (err error) {
 // This function will consider the value of the SNF_RING_ID
 // environment variable.  For more control over ring allocation,
 // consider using OpenRingID() method instead.
+//
+// Please be sure that you close the ring once you've done
+// working on it. Leaking rings may lead to packet drops in
+// neighbour applications working on the same NIC.
 //
 // If successful, a call to Start() method is required to the
 // Sniffer-mode NIC to deliver packets to the host.
@@ -570,15 +591,22 @@ func (h *Handle) OpenRing() (ring *Ring, err error) {
 // variable SNF_RING_ID since the expectation is that users want to
 // directly control ring allocation (unlike through libpcap).
 //
+// Please be sure that you close the ring once you've done
+// working on it. Leaking rings may lead to packet drops in
+// neighbour applications working on the same NIC.
+//
 // If successful, a call to Handle's Start() is required to the
 // Sniffer-mode NIC to deliver packets to the host.
 func (h *Handle) OpenRingID(id int) (ring *Ring, err error) {
+	if atomic.LoadInt32(&h.state) != stateOk {
+		return nil, io.EOF
+	}
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
 	var r C.snf_ring_t
 	if err = retErr(C.snf_ring_open_id(h.dev, C.int(id), &r)); err == nil {
 		ring = makeRing(r, h)
-		h.rings[ring] = &ring.closed
+		h.rings[ring] = &ring.state
 	}
 	return
 }
@@ -602,18 +630,16 @@ func (h *Handle) houseKeep() {
 		// notify that this Handle is down
 		// as soon as we're out of here
 		defer wg.Done()
-		select {
-		case sig := <-h.sigCh:
+		for sig := range h.sigCh {
 			// signal arrived
 			fmt.Printf("SNF handle caught %v\n", sig)
-			rings := h.Rings()
-			for _, r := range rings {
-				r.Close()
+			for _, state := range h.rings {
+				atomic.StoreInt32(state, stateNotOk)
 			}
-			h.Close()
-		case <-h.closeCh:
-			// manual close, do nothing
+			atomic.StoreInt32(&h.state, stateNotOk)
 		}
+		// channel closes when Close() is called
+		atomic.StoreInt32(&h.state, stateClosed)
 	}()
 }
 
@@ -625,6 +651,11 @@ func (h *Handle) Wait() {
 
 // SigChannel returns a channel for signal notifications. signal.Notify()
 // may then be used on this channel.
+//
+// Signal is handled by raising the flag in all subsidiary rings.
+// All consequent receiving operations on those rings and the handle
+// will return io.EOF error. As a rule of thumb that means that you
+// should Close() those rings and the handle.
 func (h *Handle) SigChannel() chan<- os.Signal {
 	return h.sigCh
 }
@@ -643,6 +674,8 @@ func (h *Handle) SigChannel() chan<- os.Signal {
 // The user has processed the last packet obtained with
 // Recv() and such and the device can safely be closed via
 // Handle's Close() if all other rings are also closed.
+// All packet data memory returned by Ring or RingReceiver
+// is reclaimed by SNF API and cannot be dereferenced.
 //
 // If a ring is closed, all receive operations with that ring
 // will return io.EOF error.
@@ -650,11 +683,10 @@ func (r *Ring) Close() error {
 	h := r.h
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
-	if closed, ok := h.rings[r]; ok {
+	if state, ok := h.rings[r]; ok {
 		defer delete(h.rings, r)
-		if atomic.SwapInt32(closed, 1) == 0 {
-			return retErr(C.snf_ring_close(r.ring))
-		}
+		defer atomic.StoreInt32(state, stateClosed)
+		return retErr(C.snf_ring_close(r.ring))
 	}
 	return nil
 }
@@ -667,6 +699,9 @@ func (r *Ring) Close() error {
 // function call that reads state kept in kernel host memory
 // (i.e. no PCI bus reads).
 func (h *Handle) TimeSourceState() (int, error) {
+	if atomic.LoadInt32(&h.state) != stateOk {
+		return 0, io.EOF
+	}
 	var res uint32
 	err := retErr(C.snf_get_timesource_state(h.dev, &res))
 	return int(res), err
@@ -730,6 +765,9 @@ func SetAppID(id int32) error {
 // Administrative clearing of NIC counters while a Sniffer-based
 // application is running may cause some of the counters to be incorrect.
 func (r *Ring) Stats() (*RingStats, error) {
+	if atomic.LoadInt32(&r.state) != stateOk {
+		return nil, io.EOF
+	}
 	var stats C.struct_snf_ring_stats
 	err := retErr(C.snf_ring_getstats(r.ring, &stats))
 	return &RingStats{
@@ -750,6 +788,9 @@ func (r *Ring) Stats() (*RingStats, error) {
 // memory to hold the information for all the physical rings in an
 // aggregated ring.
 func (r *Ring) PortInfo() (*RingPortInfo, error) {
+	if atomic.LoadInt32(&r.state) != stateOk {
+		return nil, io.EOF
+	}
 	var rc C.struct_snf_ring_portinfo
 	err := retErr(C.snf_ring_portinfo(r.ring, &rc))
 	return &RingPortInfo{
@@ -797,7 +838,7 @@ func (r *Ring) PortInfo() (*RingPortInfo, error) {
 // is done processing the previous packet.  The same assumption is made
 // when the ring is closed (ring's Close() method).
 func (r *Ring) Recv(timeout time.Duration, req *RecvReq) error {
-	if atomic.LoadInt32(&r.closed) != 0 {
+	if atomic.LoadInt32(&r.state) != stateOk {
 		return io.EOF
 	}
 	ms := dur2ms(timeout)

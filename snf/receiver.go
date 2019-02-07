@@ -72,7 +72,7 @@ func (f RawFilterFunc) Matches(data []byte) bool {
 // with gopacket's layers decoding abilities.
 type RingReceiver struct {
 	ring             C.snf_ring_t
-	closed           *int32
+	state            *int32
 	timeoutMs        C.int
 	reqArray, reqVec []C.struct_snf_recv_req
 	reqCurrent       *RecvReq
@@ -98,7 +98,7 @@ type RingReceiver struct {
 func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 	return &RingReceiver{
 		ring:       r.ring,
-		closed:     &r.closed,
+		state:      &r.state,
 		timeoutMs:  C.int(dur2ms(timeout)),
 		reqArray:   make([]C.struct_snf_recv_req, burst),
 		reqCurrent: &RecvReq{},
@@ -113,7 +113,7 @@ func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 // Packet is returned as is with no filtering performed.
 func (rr *RingReceiver) RawNext() bool {
 	if len(rr.reqVec) == 0 {
-		if atomic.LoadInt32(rr.closed) != 0 {
+		if atomic.LoadInt32(rr.state) != stateOk {
 			rr.err = io.EOF
 			return false
 		}
@@ -201,10 +201,10 @@ func (rr *RingReceiver) RingQInfo() (q RingQInfo) {
 // function is encouraged anyway as a matter of good
 // code style.
 func (rr *RingReceiver) Free() error {
-	if atomic.LoadInt32(rr.closed) != 0 {
-		return nil
+	if atomic.LoadInt32(rr.state) != stateClosed {
+		return retErr(C.snf_ring_return_many(rr.ring, rr.totalLen, &rr.qinfo))
 	}
-	return retErr(C.snf_ring_return_many(rr.ring, rr.totalLen, &rr.qinfo))
+	return nil
 }
 
 // SetRawFilter sets RawFilter on the receiver. If set, the Next() and
