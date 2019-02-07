@@ -6,10 +6,12 @@
 package snf
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -33,9 +35,9 @@ func newAssert(t *testing.T, fail bool) func(bool) {
 func handle(ci gopacket.CaptureInfo, data []byte) {
 }
 
-func TestInit(t *testing.T) {
-	assertFail := newAssert(t, true)
+func setup(t *testing.T) (func(*testing.T), error) {
 	assert := newAssert(t, false)
+
 	var err error
 	// set app id
 	err = os.Setenv("SNF_APP_ID", "32")
@@ -45,13 +47,81 @@ func TestInit(t *testing.T) {
 	err = os.Setenv("SNF_NUM_RINGS", "2")
 	assert(err == nil)
 
-	err = Init()
+	return func(t *testing.T) {}, Init()
+}
+
+func TestInit(t *testing.T) {
+	assertFail := newAssert(t, true)
+
+	teardown, err := setup(t)
+	defer teardown(t)
+
+	assertFail(err == nil)
+}
+
+func TestHandleRing(t *testing.T) {
+	assertFail := newAssert(t, true)
+	assert := newAssert(t, false)
+
+	teardown, err := setup(t)
+	defer teardown(t)
+
 	assertFail(err == nil)
 
 	ifa, err := GetIfAddrs()
 	assert(err == nil)
 	assert(len(ifa) > 0)
 
+	portnum := ifa[0].PortNum
+	h, err := OpenHandleDefaults(portnum)
+	assert(err == nil)
+	assert(h != nil)
+
+	r0, err := h.OpenRing()
+	assert(err == nil)
+	assert(r0 != nil)
+
+	r1, err := h.OpenRing()
+	assert(err == nil)
+	assert(r1 != nil)
+
+	_, err = h.OpenRing()
+	assert(IsEbusy(err))
+
+	// we've got 2 opened rings
+	assert(len(h.Rings()) == 2)
+
+	// attempt to close: fail, 2 to go
+	assert(IsEbusy(h.Close()))
+
+	// close 0
+	assert(r0.Close() == nil)
+
+	// attempt to close: fail, 1 to go
+	assert(IsEbusy(h.Close()))
+
+	// close 1
+	assert(r1.Close() == nil)
+
+	// attempt to close: ok
+	assert(h.Close() == nil)
+}
+
+func TestApp(t *testing.T) {
+	assertFail := newAssert(t, true)
+	assert := newAssert(t, false)
+
+	teardown, err := setup(t)
+	defer teardown(t)
+
+	assertFail(err == nil)
+	ifa, err := GetIfAddrs()
+	assert(err == nil)
+
+	assert(len(ifa) > 0)
+
+	var wg sync.WaitGroup
+	counters := make([]uint64, len(ifa))
 	// handle all ports
 	for i := range ifa {
 		h, err := OpenHandleDefaults(ifa[i].PortNum)
@@ -59,26 +129,53 @@ func TestInit(t *testing.T) {
 		assert(h != nil)
 		defer h.Wait()
 		defer h.Close()
-		signal.Notify(h.SigChannel(),
-			syscall.SIGTERM,
-			syscall.SIGINT,
-			syscall.SIGSEGV,
-		)
+		signal.Notify(h.SigChannel(), syscall.SIGUSR1)
 
 		// opening SNF_NUM_RINGS rings
-		r, err := h.OpenRing()
-		assert(err == nil)
-		assert(r != nil)
-		defer r.Close()
-
-		r, err = h.OpenRing()
-		assert(err == nil)
-		assert(r != nil)
-		defer r.Close()
-
-		r, err = h.OpenRing()
+		var rings []*Ring
+		for x := 0; x < 2; x++ {
+			r, err := h.OpenRing()
+			assert(err == nil)
+			assert(r != nil)
+			rings = append(rings, r)
+		}
+		_, err = h.OpenRing()
 		assert(IsEbusy(err))
+
+		assert(h.Start() == nil)
+		// processing traffic from all rings
+		for _, r := range rings {
+			wg.Add(1)
+			go func(r *Ring, counter *uint64) {
+				defer wg.Done()
+				defer r.Close()
+				rcv := r.NewReceiver(time.Second, 256)
+				defer rcv.Free()
+
+				for rcv.Next() {
+					atomic.AddUint64(counter, 1)
+				}
+
+				assert(rcv.Err() == io.EOF)
+			}(r, &counters[i])
+		}
 	}
+
+	done := make(chan bool, 1)
+	go func() {
+		// waiting for ring goroutines to exit
+		defer close(done)
+		wg.Wait()
+		done <- true
+	}()
+
+	// killing spree
+	time.Sleep(100 * time.Millisecond)
+	syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
+
+	// check to see if all ring goroutines exit
+	assert(<-done)
+	fmt.Println(counters)
 }
 
 func ExampleOpenHandle_first() {
