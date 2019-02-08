@@ -784,22 +784,32 @@ func (r *Ring) Stats() (*RingStats, error) {
 
 // PortInfo returns information for the ring.
 // For aggregated rings, returns information for each of the physical
-// rings.  It is up to the user to make sure they have allocated enough
-// memory to hold the information for all the physical rings in an
-// aggregated ring.
-func (r *Ring) PortInfo() (*RingPortInfo, error) {
+// rings.
+func (r *Ring) PortInfo() ([]*RingPortInfo, error) {
 	if atomic.LoadInt32(&r.state) != stateOk {
 		return nil, io.EOF
 	}
-	var rc C.struct_snf_ring_portinfo
-	err := retErr(C.snf_ring_portinfo(r.ring, &rc))
-	return &RingPortInfo{
-		Ring:     unsafe.Pointer(rc.ring),
-		QSize:    uintptr(rc.q_size),
-		PortCnt:  uint32(rc.portcnt),
-		Portmask: uint32(rc.portmask),
-		Data:     array2Slice(uintptr(rc.data_addr), int(rc.data_size)),
-	}, err
+	var count C.int
+	if err := retErr(C.snf_ring_portinfo_count(r.ring, &count)); err != nil {
+		return nil, err
+	}
+
+	res := make([]*RingPortInfo, count)
+	pi := make([]C.struct_snf_ring_portinfo, count)
+
+	if err := retErr(C.snf_ring_portinfo(r.ring, &pi[0])); err != nil {
+		return nil, err
+	}
+	for i, rc := range pi {
+		res[i] = &RingPortInfo{
+			Ring:     unsafe.Pointer(rc.ring),
+			QSize:    uintptr(rc.q_size),
+			PortCnt:  uint32(rc.portcnt),
+			Portmask: uint32(rc.portmask),
+			Data:     array2Slice(uintptr(rc.data_addr), int(rc.data_size)),
+		}
+	}
+	return res, nil
 }
 
 // Recv receives next packet from a receive ring.
