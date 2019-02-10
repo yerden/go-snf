@@ -579,8 +579,8 @@ func (h *Handle) OpenRing() (ring *Ring, err error) {
 // OpenRingID opens a ring from an opened port.
 //
 // ring_id Ring number to open, from 0 to num_rings - 1.  If
-// the value is -1, this function behaves as if
-// ring's Open() was called.
+// the value is -1, this function behaves as if OpenRing()
+// was called.
 //
 // Ring handle allocated if the call is successful.
 //
