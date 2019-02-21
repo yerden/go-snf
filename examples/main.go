@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os/signal"
 	"sync"
 	"syscall"
 
@@ -38,6 +39,7 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
+	signal.Notify(dev.SigChannel(), syscall.SIGINT, syscall.SIGUSR1)
 
 	// open rings until exhausted
 	var rings []*snf.Ring
