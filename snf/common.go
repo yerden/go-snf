@@ -50,3 +50,8 @@ func IsEnodev(err error) bool {
 func IsEbusy(err error) bool {
 	return syscall.Errno(syscall.EBUSY) == err
 }
+
+// IsEnomsg returns true if an error is ENOMSG.
+func IsEnomsg(err error) bool {
+	return syscall.Errno(syscall.ENOMSG) == err
+}
