@@ -15,10 +15,10 @@ recv_return_many(snf_ring_t ring,
 		 struct snf_recv_req *req_vector,
 		 int nreq_in, int *nreq_out,
 		 struct snf_ring_qinfo *qinfo, uint32_t * totlen,
-		 uintptr_t fp_p)
+		 struct bpf_program *fp)
 {
 	int rc;
-	struct bpf_program *fp = (struct bpf_program *)fp_p;
+	//struct bpf_program *fp = (struct bpf_program *)fp_p;
 
 	if (nreq_in == 1) {
 		rc = snf_ring_recv(ring, timeout_ms, req_vector);
@@ -52,7 +52,7 @@ recv_return_many(snf_ring_t ring,
 		 */
 		len += req->length_data;
 
-		if (fp->bf_len) {
+		if (fp) {
 			/* we have filter set */
 			struct pcap_pkthdr hdr = {
 				/*

@@ -247,8 +247,7 @@ type Ring struct {
 	ring C.snf_ring_t
 	h    *Handle
 
-	// TODO: allocated memory in C?
-	fp C.struct_bpf_program
+	fp *C.struct_bpf_program
 
 	// 0   ring is operational
 	// 1   ring is non-operational
@@ -258,7 +257,7 @@ type Ring struct {
 }
 
 func makeRing(ring C.snf_ring_t, h *Handle) *Ring {
-	return &Ring{ring, h, C.struct_bpf_program{}, 0}
+	return &Ring{ring, h, nil, 0}
 }
 
 // RingStats is a structure to return statistics from a ring.  The Hardware-specific
@@ -691,7 +690,7 @@ func (r *Ring) Close() error {
 	if state, ok := h.rings[r]; ok {
 		defer delete(h.rings, r)
 		defer atomic.StoreInt32(state, stateClosed)
-		defer C.go_bpf_delete(&r.fp)
+		defer C.go_bpf_delete(r.fp)
 		return retErr(C.snf_ring_close(r.ring))
 	}
 	return nil
@@ -861,8 +860,7 @@ func (r *Ring) Recv(timeout time.Duration, req *RecvReq) error {
 	}
 	ms := dur2ms(timeout)
 	var rc C.struct_snf_recv_req
-	err := retErr(C.ring_recv(r.ring, C.int(ms), &rc,
-		(*C.struct_bpf_program)(&r.fp)))
+	err := retErr(C.ring_recv(r.ring, C.int(ms), &rc, r.fp))
 	if err == nil {
 		convert(req, &rc)
 	}

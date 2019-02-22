@@ -98,7 +98,7 @@ func (r *Ring) SetBPF(snaplen int, expr string) error {
 	return r.SetBPFInstruction(insns)
 }
 
-func bpfMake(insns []pcap.BPFInstruction, fp *C.struct_bpf_program) error {
+func bpfMake(insns []pcap.BPFInstruction, fp **C.struct_bpf_program) error {
 	c_insns := make([]C.struct_bpf_insn, len(insns))
 	for i, _ := range c_insns {
 		c_insns[i].code = C.u_short(insns[i].Code)
@@ -113,9 +113,24 @@ func bpfMake(insns []pcap.BPFInstruction, fp *C.struct_bpf_program) error {
 // SetBPFInstruction sets Berkeley Packet Filter on a ring.
 // The BPF is represented as an array of instructions.
 //
+// If len(insns) == 0, unset the filter.
+//
 // See SetBPF on notes and caveats.
 func (r *Ring) SetBPFInstruction(insns []pcap.BPFInstruction) error {
-	return bpfMake(insns, &r.fp)
+	fp := r.fp
+	defer C.go_bpf_delete(fp)
+	if len(insns) == 0 {
+		// unset a filter
+		r.fp = nil
+		return nil
+	}
+
+	if err := bpfMake(insns, &fp); err != nil {
+		return err
+	}
+
+	r.fp = fp
+	return nil
 }
 
 // pcapFilterTest filters given packet through filter "repeat" times.
@@ -125,11 +140,11 @@ func pcapFilterTest(ci gopacket.CaptureInfo, pkt []byte, snaplen int, expr strin
 		return 0, err
 	}
 
-	var fp C.struct_bpf_program
+	var fp *C.struct_bpf_program
 	if err := bpfMake(insns, &fp); err != nil {
 		return 0, err
 	}
-	defer C.go_bpf_delete(&fp)
+	defer C.go_bpf_delete(fp)
 
 	var hdr C.struct_pcap_pkthdr
 	hdr.ts.tv_sec = C.long(ci.Timestamp.Unix())
@@ -137,5 +152,5 @@ func pcapFilterTest(ci gopacket.CaptureInfo, pkt []byte, snaplen int, expr strin
 	hdr.caplen = C.uint(len(pkt))
 	hdr.len = hdr.caplen
 
-	return int(C.go_bpf_test(&fp, &hdr, (*C.u_char)(&pkt[0]), C.int(repeat))), nil
+	return int(C.go_bpf_test(fp, &hdr, (*C.u_char)(&pkt[0]), C.int(repeat))), nil
 }

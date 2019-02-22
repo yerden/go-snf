@@ -13,7 +13,6 @@ import (
 	"io"
 	"sync/atomic"
 	"time"
-	"unsafe"
 )
 
 // RawFilter interface may be applied to RingReceiver and filter
@@ -63,7 +62,7 @@ type RingReceiver struct {
 func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 	return &RingReceiver{
 		ring:       r.ring,
-		fp:         &r.fp,
+		fp:         r.fp,
 		state:      &r.state,
 		timeoutMs:  C.int(dur2ms(timeout)),
 		reqArray:   make([]C.struct_snf_recv_req, burst),
@@ -93,8 +92,7 @@ func (rr *RingReceiver) RawNext() bool {
 			// since fp is allocated on heap, it will not
 			// be cleared once we call cgo.
 			rr.err = retErr(C.recv_return_many(rr.ring, rr.timeoutMs, cReqVec,
-				nreqIn, &nreqOut, &rr.qinfo, &rr.totalLen,
-				C.uintptr_t(uintptr(unsafe.Pointer(rr.fp)))))
+				nreqIn, &nreqOut, &rr.qinfo, &rr.totalLen, rr.fp))
 			if rr.err == nil {
 				rr.reqVec = rr.reqArray[:nreqOut]
 			} else {

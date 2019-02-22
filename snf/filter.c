@@ -4,31 +4,32 @@
 
 #include <filter.h>
 
-int go_bpf_make(int n_insns, struct bpf_insn *insns, struct bpf_program *fp)
+int go_bpf_make(int n_insns, struct bpf_insn *insns, struct bpf_program **pfp)
 {
-	if (n_insns == 0) {
-		go_bpf_delete(fp);
-		return 0;
-	}
-
+	struct bpf_program *fp;
+	struct bpf_insn *new_insns;
 	size_t len = sizeof(*insns) * n_insns;
-	struct bpf_insn *new_insns = malloc(len);
-	if (new_insns == NULL)
+
+	if ((fp = malloc(sizeof(*fp))) == NULL)
 		return ENOMEM;
 
-	go_bpf_delete(fp);
+	if ((new_insns = malloc(len)) == NULL) {
+		free(fp);
+		return ENOMEM;
+	}
+
 	fp->bf_len = n_insns;
 	fp->bf_insns = new_insns;
 	memcpy(new_insns, insns, len);
+	*pfp = fp;
 	return 0;
 }
 
 void go_bpf_delete(struct bpf_program *fp)
 {
-	if (fp->bf_len > 0) {
+	if (fp)
 		free(fp->bf_insns);
-		fp->bf_len = 0;
-	}
+	free(fp);
 }
 
 int go_bpf_test(struct bpf_program *fp,

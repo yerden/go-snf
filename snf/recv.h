@@ -15,7 +15,7 @@ ring_recv(snf_ring_t ringh,
 	  int timeout_ms, struct snf_recv_req *req, struct bpf_program *fp)
 {
 	int rc = snf_ring_recv(ringh, timeout_ms, req);
-	if (rc != 0 || fp->bf_len == 0)
+	if (rc != 0 || fp == NULL)
 		return rc;
 
 	struct pcap_pkthdr hdr = {
