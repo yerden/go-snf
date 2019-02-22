@@ -134,7 +134,7 @@ func pcapFilterTest(ci gopacket.CaptureInfo, pkt []byte, snaplen int, expr strin
 	if err := bpfMake(insns, &fp); err != nil {
 		return 0, err
 	}
-	defer C.go_bpf_delete(&fp)
+	defer C.pcap_freecode(&fp)
 
 	var hdr C.struct_pcap_pkthdr
 	hdr.ts.tv_sec = C.long(ci.Timestamp.Unix())

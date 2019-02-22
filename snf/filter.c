@@ -7,7 +7,7 @@
 int go_bpf_make(int n_insns, struct bpf_insn *insns, struct bpf_program *fp)
 {
 	if (n_insns == 0) {
-		go_bpf_delete(fp);
+		pcap_freecode(fp);
 		return 0;
 	}
 
@@ -16,19 +16,11 @@ int go_bpf_make(int n_insns, struct bpf_insn *insns, struct bpf_program *fp)
 	if (new_insns == NULL)
 		return ENOMEM;
 
-	go_bpf_delete(fp);
+	pcap_freecode(fp);
 	fp->bf_len = n_insns;
 	fp->bf_insns = new_insns;
 	memcpy(new_insns, insns, len);
 	return 0;
-}
-
-void go_bpf_delete(struct bpf_program *fp)
-{
-	if (fp->bf_len > 0) {
-		free(fp->bf_insns);
-		fp->bf_len = 0;
-	}
 }
 
 int go_bpf_test(struct bpf_program *fp,

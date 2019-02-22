@@ -691,7 +691,7 @@ func (r *Ring) Close() error {
 	if state, ok := h.rings[r]; ok {
 		defer delete(h.rings, r)
 		defer atomic.StoreInt32(state, stateClosed)
-		defer C.go_bpf_delete(&r.fp)
+		defer C.pcap_freecode(&r.fp)
 		return retErr(C.snf_ring_close(r.ring))
 	}
 	return nil
