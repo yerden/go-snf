@@ -126,6 +126,7 @@ func (r *Ring) SetBPFInstruction(insns []pcap.BPFInstruction) error {
 	}
 
 	if err := bpfMake(insns, &fp); err != nil {
+		r.fp = nil
 		return err
 	}
 
