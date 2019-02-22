@@ -115,7 +115,12 @@ func bpfMake(insns []pcap.BPFInstruction, fp *C.struct_bpf_program) error {
 //
 // See SetBPF on notes and caveats.
 func (r *Ring) SetBPFInstruction(insns []pcap.BPFInstruction) error {
-	return bpfMake(insns, &r.fp)
+	var fp C.struct_bpf_program
+	if err := bpfMake(insns, &fp); err != nil {
+		return err
+	}
+	r.fp = fp
+	return nil
 }
 
 // pcapFilterTest filters given packet through filter "repeat" times.
