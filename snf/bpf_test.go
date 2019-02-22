@@ -6,6 +6,7 @@
 package snf
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -126,5 +127,41 @@ func BenchmarkPcapBPFBad(b *testing.B) {
 		if filter.Matches(ci, packet[:]) {
 			b.Fatal("filter must not match the packet")
 		}
+	}
+}
+
+func BenchmarkBulkPcapBPFGood(b *testing.B) {
+	ci := gopacket.CaptureInfo{
+		InterfaceIndex: 0,
+		CaptureLength:  len(packet),
+		Length:         len(packet),
+		Timestamp:      time.Now(),
+	}
+
+	res, err := pcapFilterTest(ci, packet[:], snaplen, goodBPF, b.N)
+	if err != nil {
+		b.Fatal("unable to make a filter")
+	}
+	if res == 0 {
+		fmt.Println("res=", res)
+		b.Fatal("filter supposed to be good")
+	}
+}
+
+func BenchmarkBulkPcapBPFBad(b *testing.B) {
+	ci := gopacket.CaptureInfo{
+		InterfaceIndex: 0,
+		CaptureLength:  len(packet),
+		Length:         len(packet),
+		Timestamp:      time.Now(),
+	}
+
+	res, err := pcapFilterTest(ci, packet[:], snaplen, badBPF, b.N)
+	if err != nil {
+		b.Fatal("unable to make a filter")
+	}
+	if res != 0 {
+		fmt.Println("res=", res)
+		b.Fatal("filter supposed to be bad")
 	}
 }
