@@ -55,8 +55,10 @@ import (
 )
 
 // #cgo CFLAGS: -I/opt/snf/include
-// #cgo LDFLAGS: -L/opt/snf/lib -lsnf
+// #cgo LDFLAGS: -L/opt/snf/lib -lsnf -lpcap
 // #include <snf.h>
+// #include <recv.h>
+// #include <filter.h>
 import "C"
 
 // Underlying port's state (DOWN or UP)
@@ -245,6 +247,9 @@ type Ring struct {
 	ring C.snf_ring_t
 	h    *Handle
 
+	// TODO: allocated memory in C?
+	fp C.struct_bpf_program
+
 	// 0   ring is operational
 	// 1   ring is non-operational
 	//     and can only be closed
@@ -253,7 +258,7 @@ type Ring struct {
 }
 
 func makeRing(ring C.snf_ring_t, h *Handle) *Ring {
-	return &Ring{ring, h, 0}
+	return &Ring{ring, h, C.struct_bpf_program{}, 0}
 }
 
 // RingStats is a structure to return statistics from a ring.  The Hardware-specific
@@ -686,6 +691,7 @@ func (r *Ring) Close() error {
 	if state, ok := h.rings[r]; ok {
 		defer delete(h.rings, r)
 		defer atomic.StoreInt32(state, stateClosed)
+		defer C.go_bpf_delete(&r.fp)
 		return retErr(C.snf_ring_close(r.ring))
 	}
 	return nil
@@ -837,6 +843,8 @@ func (r *Ring) PortInfo() ([]*RingPortInfo, error) {
 // information.
 // EINTR means the call was interrupted by a signal handler.
 // EAGAIN means that no packets are available (only when timeout is >= 0).
+// ENOMSG means that packet was successfully received but didn't match
+// the applied BPF.
 //
 // The returned packet always points directly into the receive
 // ring where the NIC has DMAed the packet (there are no copies).  As
@@ -853,7 +861,8 @@ func (r *Ring) Recv(timeout time.Duration, req *RecvReq) error {
 	}
 	ms := dur2ms(timeout)
 	var rc C.struct_snf_recv_req
-	err := retErr(C.snf_ring_recv(r.ring, C.int(ms), &rc))
+	err := retErr(C.ring_recv(r.ring, C.int(ms), &rc,
+		(*C.struct_bpf_program)(&r.fp)))
 	if err == nil {
 		convert(req, &rc)
 	}

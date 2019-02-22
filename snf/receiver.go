@@ -13,6 +13,7 @@ import (
 	"io"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 // RawFilter interface may be applied to RingReceiver and filter
@@ -35,6 +36,7 @@ func (f RawFilterFunc) Matches(data []byte) bool {
 // with gopacket's layers decoding abilities.
 type RingReceiver struct {
 	ring             C.snf_ring_t
+	fp               *C.struct_bpf_program
 	state            *int32
 	timeoutMs        C.int
 	reqArray, reqVec []C.struct_snf_recv_req
@@ -61,6 +63,7 @@ type RingReceiver struct {
 func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 	return &RingReceiver{
 		ring:       r.ring,
+		fp:         &r.fp,
 		state:      &r.state,
 		timeoutMs:  C.int(dur2ms(timeout)),
 		reqArray:   make([]C.struct_snf_recv_req, burst),
@@ -75,28 +78,39 @@ func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 //
 // Packet is returned as is with no filtering performed.
 func (rr *RingReceiver) RawNext() bool {
-	if len(rr.reqVec) == 0 {
-		if atomic.LoadInt32(rr.state) != stateOk {
-			rr.err = io.EOF
-			return false
+	for {
+		if len(rr.reqVec) == 0 {
+			if atomic.LoadInt32(rr.state) != stateOk {
+				rr.err = io.EOF
+				return false
+			}
+			// return borrowed data
+			// retrieve new packets from ring
+			nreqIn, nreqOut := C.int(len(rr.reqArray)), C.int(0)
+			cReqVec := (*C.struct_snf_recv_req)(&rr.reqArray[0])
+
+			// we're doing some nasty-casty thing here
+			// since fp is allocated on heap, it will not
+			// be cleared once we call cgo.
+			rr.err = retErr(C.recv_return_many(rr.ring, rr.timeoutMs, cReqVec,
+				nreqIn, &nreqOut, &rr.qinfo, &rr.totalLen,
+				C.uintptr_t(uintptr(unsafe.Pointer(rr.fp)))))
+			if rr.err == nil {
+				rr.reqVec = rr.reqArray[:nreqOut]
+			} else {
+				return false
+			}
 		}
-		// return borrowed data
-		// retrieve new packets from ring
-		nreqIn, nreqOut := C.int(len(rr.reqArray)), C.int(0)
-		cReqVec := (*C.struct_snf_recv_req)(&rr.reqArray[0])
-		rr.err = retErr(C.refill(rr.ring, rr.timeoutMs, cReqVec,
-			nreqIn, &nreqOut, &rr.qinfo, &rr.totalLen))
-		if rr.err == nil {
-			rr.reqVec = rr.reqArray[:nreqOut]
-		} else {
-			return false
+
+		// some packets are waiting
+		req := &rr.reqVec[0]
+		rr.reqVec = rr.reqVec[1:]
+
+		if req.length != 0 {
+			convert(rr.reqCurrent, req)
+			return true
 		}
 	}
-
-	// some packets are waiting
-	convert(rr.reqCurrent, &rr.reqVec[0])
-	rr.reqVec = rr.reqVec[1:]
-	return true
 }
 
 // Next gets next packet out of ring. If true, the operation
