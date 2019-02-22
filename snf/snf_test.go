@@ -149,6 +149,9 @@ func TestApp(t *testing.T) {
 			go func(r *Ring, counter *uint64) {
 				defer wg.Done()
 				defer r.Close()
+				if err := r.SetBPF(65535, "vlan and udp"); err != nil {
+					return
+				}
 				rcv := r.NewReceiver(time.Second, 256)
 				defer rcv.Free()
 
