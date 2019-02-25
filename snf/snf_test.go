@@ -22,7 +22,8 @@ import (
 
 func newAssert(t *testing.T, fail bool) func(bool) {
 	return func(expected bool) {
-		if t.Helper(); !expected {
+		if !expected {
+			t.Helper()
 			t.Error("Something's not right")
 			if fail {
 				t.FailNow()
@@ -149,16 +150,20 @@ func TestApp(t *testing.T) {
 			go func(r *Ring, counter *uint64) {
 				defer wg.Done()
 				defer r.Close()
-				if err := r.SetBPF(65535, "vlan and udp"); err != nil {
-					return
-				}
 				rcv := r.NewReceiver(time.Second, 256)
 				defer rcv.Free()
+				snaplen := 1234
+				err := rcv.SetBPF(snaplen, "vlan and tcp")
+				if err != nil {
+					return
+				}
 
 				for rcv.Next() {
 					atomic.AddUint64(counter, 1)
+					assert(snaplen == rcv.BPFResult())
 				}
 
+				// we should be closed by signal
 				assert(rcv.Err() == io.EOF)
 			}(r, &counters[i])
 		}
@@ -324,72 +329,4 @@ func ExampleRingReceiver() {
 		}
 		handle(ci, data)
 	}
-}
-
-func ExampleNewNetBPF() {
-	var recv *RingReceiver
-	// create recv with ring's NewReceiver() method
-	// ...
-
-	// compile golang.org/x/net/bpf virtual machine.
-	//
-	// compilation is done with libpcap library, filter
-	// is executed natively.
-	bpf, err := NewNetBPF(
-		65535,                          // max snap len
-		"vlan and tcp and dst port 53", // bpf expression
-	)
-	if err != nil {
-		return
-	}
-
-	// set the filter;
-	// remember, setting new filter replaces previous one
-	recv.SetRawFilter(bpf)
-}
-
-func ExampleNewPcapBPF() {
-	var recv *RingReceiver
-	// create recv with ring's NewReceiver() method
-	// ...
-
-	// compile libpcap BPF virtual machine.
-	//
-	// compilation and execution is done within libpcap
-	// library
-	bpf, err := NewPcapBPF(
-		65535,                          // max snap len
-		"vlan and tcp and dst port 53", // bpf expression
-	)
-	if err != nil {
-		return
-	}
-
-	// set the filter;
-	// remember, setting new filter replaces previous one
-	recv.SetFilter(bpf)
-}
-
-func ExampleRingReceiver_SetFilter() {
-	var recv *RingReceiver
-	// create recv with ring's NewReceiver() method
-	// ...
-
-	// see NewNetBPF() or NewPcapBPF() for respective
-	// examples on BPF filtering.
-	//
-	// Alternatively to BPF, custom filter may be devised.
-	//
-	// For example, we don't want to see packets
-	// with length over 1000 bytes on working days.
-	filter := func(ci gopacket.CaptureInfo, data []byte) bool {
-		if wd := ci.Timestamp.Weekday(); wd == time.Saturday || wd == time.Sunday {
-			return true
-		}
-		return ci.Length < 1000
-	}
-
-	// set the filter;
-	// remember, setting new filter replaces previous one
-	recv.SetFilter(FilterFunc(filter))
 }
