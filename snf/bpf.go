@@ -6,152 +6,105 @@
 
 package snf
 
-import (
-	"errors"
-
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
-	"github.com/google/gopacket/pcap"
-	"golang.org/x/net/bpf"
-)
-
 /*
 #include <stdlib.h>
 #include <pcap.h>
-#include <filter.h>
+#include <string.h>
+#include "filter.h"
 */
 import "C"
 
-// NetBPF is an instance of a BPF virtual machine
-// implemented in golang.org/x/net/bpf package.
-type NetBPF struct {
-	internal *bpf.VM
+import (
+	"errors"
+	"unsafe"
+
+	"golang.org/x/net/bpf"
+)
+
+func makeProgram(insns []bpf.RawInstruction) (fp C.struct_bpf_program) {
+	cInsns := make([]C.struct_bpf_insn, len(insns))
+	for i := range cInsns {
+		cInsns[i].code = C.u_short(insns[i].Op)
+		cInsns[i].jf = C.u_char(insns[i].Jf)
+		cInsns[i].jt = C.u_char(insns[i].Jt)
+		cInsns[i].k = C.uint(insns[i].K)
+	}
+	fp.bf_len = C.uint(len(insns))
+	fp.bf_insns = &cInsns[0]
+	return fp
 }
 
-var _ RawFilter = (*NetBPF)(nil)
-var _ Filter = (*pcap.BPF)(nil)
-
-// Matches return true if packet matches the filter condition.
-func (nf *NetBPF) Matches(data []byte) bool {
-	res, err := nf.internal.Run(data)
-
+// pcapFilterTest filters given packet through filter "repeat" times.
+func pcapFilterTest(pkt []byte, snaplen int, expr string, repeat int) (int, error) {
+	insns, err := compileBPF(snaplen, expr)
 	if err != nil {
-		return false
+		return 0, err
 	}
 
-	return res != 0
+	fp := makeProgram(insns)
+
+	var hdr C.struct_pcap_pkthdr
+	hdr.caplen = C.uint(len(pkt))
+	hdr.len = hdr.caplen
+
+	return int(C.go_bpf_test(C.uintptr_t(uintptr(unsafe.Pointer(&fp))),
+		&hdr, (*C.u_char)(&pkt[0]), C.int(repeat))), nil
 }
 
-// NewNetBPF returns filter which matches packets using net/bpf's VM.
-func NewNetBPF(snaplen int, bpffilter string) (RawFilter, error) {
-	pcapInstructions, _ := pcap.CompileBPFFilter(layers.LinkTypeEthernet, snaplen, bpffilter)
-	rawInstructions := make([]bpf.RawInstruction, len(pcapInstructions))
-
-	for i, pcapIns := range pcapInstructions {
-		rawInstructions[i].Op = pcapIns.Code
-		rawInstructions[i].Jt = pcapIns.Jt
-		rawInstructions[i].Jf = pcapIns.Jf
-		rawInstructions[i].K = pcapIns.K
-	}
-
-	instructions, allParsed := bpf.Disassemble(rawInstructions)
-	if !allParsed {
-		return nil, errors.New("could not translate all pcap bpf instructions")
-	}
-
-	vm, err := bpf.NewVM(instructions)
-	if err != nil {
-		return nil, err
-	}
-
-	return &NetBPF{internal: vm}, nil
-}
-
-// NewPcapBPF returns filter which matches packets using gopacket/pcap's BPF.
-func NewPcapBPF(snaplen int, bpffilter string) (Filter, error) {
-	return pcap.NewBPF(layers.LinkTypeEthernet, snaplen, bpffilter)
-}
-
-// SetBPF sets Berkeley Packet Filter on a ring.
+// SetBPFInstructions sets Berkeley Packet Filter on a
+// RingReceiver.
+// The BPF is represented as an array of instructions.
 //
-// Like SetFilter this function allows to set a BPF on a ring.
+// If len(insns) == 0, unset the filter.
+//
+// See SetBPF on notes and caveats.
+func (rr *RingReceiver) SetBPFInstructions(insns []bpf.RawInstruction) error {
+	rr.reqMany.fp = makeProgram(insns)
+	return nil
+}
+
+// SetBPF sets Berkeley Packet Filter on a RingReceiver.
+//
 // The installed BPF will be matched across every packet
-// received on it with Ring.Recv or RingReceiver.RawNext.
+// received on it with RingReceiver.Next.
 //
-// Unlike SetFilter, BPF check is performed in the very same
-// receiving Cgo call and, because of that, is more efficient.
-//
-// If the packet don't match BPF, Recv() will return
-// ENOMSG error instead of packet. RingReceiver.RawNext()
+// If the pcap_offline_filter returns zero, RingReceiver.Next
 // will silently skip this packet.
 //
 // SetBPF will silently replace previously set filter.
 // You can call this function at any point in your program
 // but make sure that there is no concurrent packet reading
 // activity on the ring at the moment.
-func (r *Ring) SetBPF(snaplen int, expr string) error {
-	insns, err := pcap.CompileBPFFilter(layers.LinkTypeEthernet, snaplen, expr)
+func (rr *RingReceiver) SetBPF(snaplen int, expr string) error {
+	insns, err := compileBPF(snaplen, expr)
 	if err != nil {
 		return err
 	}
 
-	return r.SetBPFInstruction(insns)
+	return rr.SetBPFInstructions(insns)
 }
 
-func bpfMake(insns []pcap.BPFInstruction, fp **C.struct_bpf_program) error {
-	c_insns := make([]C.struct_bpf_insn, len(insns))
-	for i, _ := range c_insns {
-		c_insns[i].code = C.u_short(insns[i].Code)
-		c_insns[i].jf = C.u_char(insns[i].Jf)
-		c_insns[i].jt = C.u_char(insns[i].Jt)
-		c_insns[i].k = C.uint(insns[i].K)
+func compileBPF(snaplen int, expr string) ([]bpf.RawInstruction, error) {
+	var fp C.struct_bpf_program
+	var p *C.pcap_t
+
+	p = C.pcap_open_dead(C.DLT_EN10MB, C.int(snaplen))
+	if p == nil {
+		return nil, errors.New("unable to create pcap handle")
 	}
+	defer C.pcap_close(p)
 
-	return retErr(C.go_bpf_make(C.int(len(c_insns)), &c_insns[0], fp))
-}
+	cExpr := C.CString(expr)
+	defer C.free(unsafe.Pointer(cExpr))
 
-// SetBPFInstruction sets Berkeley Packet Filter on a ring.
-// The BPF is represented as an array of instructions.
-//
-// If len(insns) == 0, unset the filter.
-//
-// See SetBPF on notes and caveats.
-func (r *Ring) SetBPFInstruction(insns []pcap.BPFInstruction) error {
-	fp := r.fp
-	defer C.go_bpf_delete(fp)
-	if len(insns) == 0 {
-		// unset a filter
-		r.fp = nil
-		return nil
+	ret := int(C.pcap_compile(p, &fp, cExpr, 1, C.PCAP_NETMASK_UNKNOWN))
+	if ret < 0 {
+		return nil, errors.New(C.GoString(C.pcap_geterr(p)))
 	}
+	defer C.pcap_freecode(&fp)
 
-	if err := bpfMake(insns, &fp); err != nil {
-		r.fp = nil
-		return err
-	}
-
-	r.fp = fp
-	return nil
-}
-
-// pcapFilterTest filters given packet through filter "repeat" times.
-func pcapFilterTest(ci gopacket.CaptureInfo, pkt []byte, snaplen int, expr string, repeat int) (int, error) {
-	insns, err := pcap.CompileBPFFilter(layers.LinkTypeEthernet, snaplen, expr)
-	if err != nil {
-		return 0, err
-	}
-
-	var fp *C.struct_bpf_program
-	if err := bpfMake(insns, &fp); err != nil {
-		return 0, err
-	}
-	defer C.go_bpf_delete(fp)
-
-	var hdr C.struct_pcap_pkthdr
-	hdr.ts.tv_sec = C.long(ci.Timestamp.Unix())
-	hdr.ts.tv_usec = C.long(ci.Timestamp.Nanosecond() / 1000)
-	hdr.caplen = C.uint(len(pkt))
-	hdr.len = hdr.caplen
-
-	return int(C.go_bpf_test(fp, &hdr, (*C.u_char)(&pkt[0]), C.int(repeat))), nil
+	insns := make([]bpf.RawInstruction, fp.bf_len)
+	C.memcpy(unsafe.Pointer(&insns[0]), unsafe.Pointer(fp.bf_insns),
+		C.ulong(fp.bf_len*C.sizeof_struct_bpf_insn))
+	return insns, nil
 }

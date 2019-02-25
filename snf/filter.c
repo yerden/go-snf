@@ -4,7 +4,7 @@
 
 #include <filter.h>
 
-int go_bpf_make(int n_insns, struct bpf_insn *insns, struct bpf_program **pfp)
+int go_bpf_make(unsigned int n_insns, struct bpf_insn *insns, struct bpf_program **pfp)
 {
 	struct bpf_program *fp;
 	struct bpf_insn *new_insns;
@@ -32,10 +32,11 @@ void go_bpf_delete(struct bpf_program *fp)
 	free(fp);
 }
 
-int go_bpf_test(struct bpf_program *fp,
-		const struct pcap_pkthdr *hdr, const u_char * pkt, int count)
+int go_bpf_test(uintptr_t pfp, const struct pcap_pkthdr *hdr,
+		const u_char * pkt, int count)
 {
 	int n, res;
+	struct bpf_program *fp = (typeof(fp))pfp;
 	for (n = 0; n < count; n++)
 		res = pcap_offline_filter(fp, hdr, pkt);
 

@@ -8,9 +8,6 @@ package snf
 import (
 	"fmt"
 	"testing"
-	"time"
-
-	"github.com/google/gopacket"
 )
 
 var (
@@ -29,138 +26,23 @@ var (
 	badBPF  = "udp and port 80"
 )
 
-func newNetBPF(t *testing.T, bpffilter string) RawFilter {
-	filter, err := NewNetBPF(snaplen, bpffilter)
-	if err != nil {
-		t.Fatalf("failed create NetBPF: %v", err)
-	}
-	return filter
-}
-
-func newPcapBPF(t *testing.T, bpffilter string) Filter {
-	filter, err := NewPcapBPF(snaplen, bpffilter)
-	if err != nil {
-		t.Fatalf("failed create PcapBPF: %v", err)
-	}
-	return filter
-}
-
-func TestNetBPF(t *testing.T) {
-	filter := newNetBPF(t, goodBPF)
-
-	if !filter.Matches(packet[:]) {
-		t.Fatal("filter must match the packet")
-	}
-
-	filter = newNetBPF(t, badBPF)
-	if filter.Matches(packet[:]) {
-		t.Fatal("filter must not match the packet")
-	}
-}
-
-func TestPcapBPF(t *testing.T) {
-
-	filter := newPcapBPF(t, goodBPF)
-	ci := gopacket.CaptureInfo{
-		InterfaceIndex: 0,
-		CaptureLength:  len(packet),
-		Length:         len(packet),
-		Timestamp:      time.Now(),
-	}
-
-	if !filter.Matches(ci, packet[:]) {
-		t.Fatal("filter must match the packet")
-	}
-
-	filter = newPcapBPF(t, badBPF)
-	if filter.Matches(ci, packet[:]) {
-		t.Fatal("filter must not match the packet")
-	}
-}
-
-func BenchmarkNetBPFGood(b *testing.B) {
-	filter, _ := NewNetBPF(snaplen, goodBPF)
-
-	for i := 0; i < b.N; i++ {
-		if !filter.Matches(packet[:]) {
-			b.Fatal("filter must match the packet")
-		}
-	}
-}
-
-func BenchmarkPcapBPFGood(b *testing.B) {
-	filter, _ := NewPcapBPF(snaplen, goodBPF)
-	ci := gopacket.CaptureInfo{
-		InterfaceIndex: 0,
-		CaptureLength:  len(packet),
-		Length:         len(packet),
-		Timestamp:      time.Now(),
-	}
-
-	for i := 0; i < b.N; i++ {
-		if !filter.Matches(ci, packet[:]) {
-			b.Fatal("filter must match the packet")
-		}
-	}
-}
-
-func BenchmarkNetBPFBad(b *testing.B) {
-	filter, _ := NewNetBPF(snaplen, badBPF)
-
-	for i := 0; i < b.N; i++ {
-		if filter.Matches(packet[:]) {
-			b.Fatal("filter must not match the packet")
-		}
-	}
-}
-
-func BenchmarkPcapBPFBad(b *testing.B) {
-	filter, _ := NewPcapBPF(snaplen, badBPF)
-	ci := gopacket.CaptureInfo{
-		InterfaceIndex: 0,
-		CaptureLength:  len(packet),
-		Length:         len(packet),
-		Timestamp:      time.Now(),
-	}
-
-	for i := 0; i < b.N; i++ {
-		if filter.Matches(ci, packet[:]) {
-			b.Fatal("filter must not match the packet")
-		}
-	}
-}
-
 func BenchmarkBulkPcapBPFGood(b *testing.B) {
-	ci := gopacket.CaptureInfo{
-		InterfaceIndex: 0,
-		CaptureLength:  len(packet),
-		Length:         len(packet),
-		Timestamp:      time.Now(),
-	}
-
-	res, err := pcapFilterTest(ci, packet[:], snaplen, goodBPF, b.N)
+	res, err := pcapFilterTest(packet[:], snaplen, goodBPF, b.N)
 	if err != nil {
 		b.Fatal("unable to make a filter")
 	}
-	if res == 0 {
+	if res != snaplen {
 		fmt.Println("res=", res)
 		b.Fatal("filter supposed to be good")
 	}
 }
 
 func BenchmarkBulkPcapBPFBad(b *testing.B) {
-	ci := gopacket.CaptureInfo{
-		InterfaceIndex: 0,
-		CaptureLength:  len(packet),
-		Length:         len(packet),
-		Timestamp:      time.Now(),
-	}
-
-	res, err := pcapFilterTest(ci, packet[:], snaplen, badBPF, b.N)
+	res, err := pcapFilterTest(packet[:], snaplen, badBPF, b.N)
 	if err != nil {
 		b.Fatal("unable to make a filter")
 	}
-	if res != 0 {
+	if res == snaplen {
 		fmt.Println("res=", res)
 		b.Fatal("filter supposed to be bad")
 	}
