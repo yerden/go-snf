@@ -6,47 +6,44 @@
 
 package snf
 
-// #include <snf.h>
-// #include "receiver.h"
+/*
+#include <snf.h>
+#include "receiver.h"
+#include "filter.h"
+*/
 import "C"
 import (
 	"io"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
-
-// RawFilter interface may be applied to RingReceiver and filter
-// out unneeded packets.
-type RawFilter interface {
-	Matches(data []byte) bool
-}
-
-// RawFilterFunc implements RawFilter interface.
-type RawFilterFunc func([]byte) bool
-
-// Matches returns true if packet matches Filter condition.
-func (f RawFilterFunc) Matches(data []byte) bool {
-	return f(data)
-}
 
 // RingReceiver wraps SNF's borrow-many-return-many model of packets
 // retrieval, along with google's gopacket interface.
 // This allows us to access low-level SNF API but maintain compatibility
 // with gopacket's layers decoding abilities.
 type RingReceiver struct {
-	ring             C.snf_ring_t
-	fp               *C.struct_bpf_program
-	state            *int32
-	timeoutMs        C.int
-	reqArray, reqVec []C.struct_snf_recv_req
-	reqCurrent       *RecvReq
-	qinfo            C.struct_snf_ring_qinfo
+	// underlying ring
+	ring  C.snf_ring_t
+	state *int32
 
-	// amount of data to return
-	totalLen C.uint
-	err      error
+	// backing reqs array
+	reqs      []C.struct_snf_recv_req
+	bpfResult []C.int
 
-	filter RawFilter
+	// current packet index
+	index int
+
+	// packet array
+	reqMany C.struct_recv_req_many
+	// receive timeout
+	timeoutMs C.int
+
+	reqCurrent *RecvReq
+
+	// last error
+	err error
 }
 
 // NewReceiver creates new RingReceiver.
@@ -60,12 +57,22 @@ type RingReceiver struct {
 // burst==1. In that case, RingReceiver will utilize snf_ring_recv()
 // which works in either cases.
 func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
+	reqs := make([]C.struct_snf_recv_req, burst)
+	bpfResult := make([]C.int, burst)
+
 	return &RingReceiver{
-		ring:       r.ring,
-		fp:         r.fp,
-		state:      &r.state,
-		timeoutMs:  C.int(dur2ms(timeout)),
-		reqArray:   make([]C.struct_snf_recv_req, burst),
+		ring:      r.ring,
+		state:     &r.state,
+		reqs:      reqs,
+		bpfResult: bpfResult,
+		timeoutMs: C.int(dur2ms(timeout)),
+		index:     0,
+		reqMany: C.struct_recv_req_many{
+			reqs:       &reqs[0],
+			bpf_result: &bpfResult[0],
+			nreq_in:    C.int(burst),
+			nreq_out:   0,
+			total_len:  0},
 		reqCurrent: &RecvReq{},
 	}
 }
@@ -74,37 +81,27 @@ func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 // is a success, otherwise you should halt all actions
 // on the receiver until Err() error is examined and
 // needed actions are performed.
-//
-// Packet is returned as is with no filtering performed.
-func (rr *RingReceiver) RawNext() bool {
+func (rr *RingReceiver) rawNext() bool {
+	rm := &rr.reqMany
 	for {
-		if len(rr.reqVec) == 0 {
+		if rr.index++; rr.index >= int(rm.nreq_out) {
+			rr.index = 0
 			if atomic.LoadInt32(rr.state) != stateOk {
 				rr.err = io.EOF
 				return false
 			}
 			// return borrowed data
 			// retrieve new packets from ring
-			nreqIn, nreqOut := C.int(len(rr.reqArray)), C.int(0)
-			cReqVec := (*C.struct_snf_recv_req)(&rr.reqArray[0])
-
-			// we're doing some nasty-casty thing here
-			// since fp is allocated on heap, it will not
-			// be cleared once we call cgo.
-			rr.err = retErr(C.recv_return_many(rr.ring, rr.timeoutMs, cReqVec,
-				nreqIn, &nreqOut, &rr.qinfo, &rr.totalLen, rr.fp))
-			if rr.err == nil {
-				rr.reqVec = rr.reqArray[:nreqOut]
-			} else {
+			rr.err = retErr(C.go_snf_recv_many(rr.ring, rr.timeoutMs,
+				C.uintptr_t(uintptr(unsafe.Pointer(rm)))))
+			if rr.err != nil {
 				return false
 			}
 		}
 
 		// some packets are waiting
-		req := &rr.reqVec[0]
-		rr.reqVec = rr.reqVec[1:]
-
-		if req.length != 0 {
+		req := &rr.reqs[rr.index]
+		if rm.fp.bf_len == 0 || rr.bpfResult[rr.index] != 0 {
 			convert(rr.reqCurrent, req)
 			return true
 		}
@@ -115,16 +112,16 @@ func (rr *RingReceiver) RawNext() bool {
 // is a success, otherwise you should halt all actions
 // on the receiver until Err() error is examined and
 // needed actions are performed.
-//
-// Run supplied filter on the packet.
 func (rr *RingReceiver) Next() bool {
-	for rr.RawNext() {
-		if rr.filter == nil || rr.filter.Matches(rr.Data()) {
-			return true
-		}
-	}
+	return rr.rawNext()
+}
 
-	return false
+// BPFResult returns the result of BPF filter calculation.
+// If no filter is set, this is always zero. If a filter is set,
+// the zero value would mean the packet didn't match hence
+// BPFResult always would return non-zero value.
+func (rr *RingReceiver) BPFResult() int {
+	return int(rr.bpfResult[rr.index])
 }
 
 // RecvReq returns current packet descriptor. This descriptor
@@ -147,7 +144,7 @@ func (rr *RingReceiver) Data() []byte {
 // without calling SNF API to retrieve new packets.
 // Mostly used for testing purposes.
 func (rr *RingReceiver) Avail() int {
-	return len(rr.reqVec)
+	return int(rr.reqMany.nreq_out) - rr.index
 }
 
 // Err returns error which was encountered during the last
@@ -159,9 +156,10 @@ func (rr *RingReceiver) Err() error {
 
 // RingQInfo provides access the most recent Ring queue info.
 func (rr *RingReceiver) RingQInfo() (q RingQInfo) {
-	q.Avail = uintptr(rr.qinfo.q_avail)
-	q.Borrowed = uintptr(rr.qinfo.q_borrowed)
-	q.Free = uintptr(rr.qinfo.q_free)
+	rm := &rr.reqMany
+	q.Avail = uintptr(rm.qinfo.q_avail)
+	q.Borrowed = uintptr(rm.qinfo.q_borrowed)
+	q.Free = uintptr(rm.qinfo.q_free)
 	return
 }
 
@@ -176,17 +174,11 @@ func (rr *RingReceiver) RingQInfo() (q RingQInfo) {
 // function is encouraged anyway as a matter of good
 // code style.
 func (rr *RingReceiver) Free() error {
+	rm := &rr.reqMany
 	if atomic.LoadInt32(rr.state) != stateClosed {
-		return retErr(C.snf_ring_return_many(rr.ring, rr.totalLen, &rr.qinfo))
+		return retErr(C.snf_ring_return_many(rr.ring, rm.total_len, nil))
 	}
 	return nil
-}
-
-// SetRawFilter sets RawFilter on the receiver. If set, the Next() and
-// LoopNext() would not return until a packet matches
-// filter.
-func (rr *RingReceiver) SetRawFilter(f RawFilter) {
-	rr.filter = f
 }
 
 // LoopNext is similar to Next() method but this one loops if EAGAIN

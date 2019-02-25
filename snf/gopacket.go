@@ -11,34 +11,6 @@ import (
 	"time"
 )
 
-// Filter interface may be applied to RingReceiver and filter
-// out unneeded packets. This interface is satisfied by
-// gopacket/pcap BPF object.
-type Filter interface {
-	Matches(ci gopacket.CaptureInfo, data []byte) bool
-}
-
-// FilterFunc implements Filter interface.
-type FilterFunc func(gopacket.CaptureInfo, []byte) bool
-
-// Matches returns if a packet with its metadata matches
-// filter condition.
-func (f FilterFunc) Matches(ci gopacket.CaptureInfo, data []byte) bool {
-	return f(ci, data)
-}
-
-// SetFilter sets a Filter on the receiver. If set, the Next() and
-// LoopNext() would not return until a packet matches
-// filter.
-//
-// Hint: BPF filter from gopacket package
-// satisfies Filter interface.
-func (rr *RingReceiver) SetFilter(f Filter) {
-	rr.SetRawFilter(RawFilterFunc(func(data []byte) bool {
-		return f.Matches(rr.RecvReq().CaptureInfo(), data)
-	}))
-}
-
 // CaptureInfo returns gopacket.CaptureInfo metadata for retrieved packet.
 func (req *RecvReq) CaptureInfo() (ci gopacket.CaptureInfo) {
 	ci.CaptureLength = len(req.Pkt)
