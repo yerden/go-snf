@@ -17,17 +17,14 @@ In order to be able to use google/gopacket (layers etc.) functionality,
 some interfaces in those packages are satisfied. Any feature requests
 regarding extension of such integration are welcomed.
 
-The package utilizes BPF virtual machine from original google/gopacket/pcap
-package and also may use golang.org/x/net/bpf implementation. Tests show
-that native net/bpf implementation is pretty much faster right now but
-staying tuned is advised for it may change in the future.
-Filter interface is provided in the package which mimics the BPF behaviour
-in google/gopacket/pcap package.
-
 Most part of the package is a pretty much straightforward SNF API
 wrappers. On top of that, RingReceiver is provided which wraps bulk
 packet operation. RingReceiver also satisfies gopacket.ZeroCopyPacketDataSource
 in case you work with google/gopacket/pcap.
+
+The package utilizes BPF virtual machine from libpcap. Since original
+SNF API doesn't expose any filtering service RingReceiver object provides
+SetBPF method to apply offline BPF filtering.
 
 It is extremely important from the system point of view that all the rings
 and handles are properly closed upon program exit. Thus, some work was
