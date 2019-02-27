@@ -1,0 +1,86 @@
+; This BPF program returns 24-bit value of the
+; following format, for either IPv4 or IPv6.
+;
+; 0               1              2              3
+; |=======|=======|==============|==============|
+; |--TCP--|-IPver-|----IP hlen---|---IP offset--|
+;   hlen     4-bit      8-bit           8-bit
+;
+; TCP hlen is a count of 4-octet words, the same applies to IP hlen.
+
+; accumulate offset in x
+; skipping at most 2 VLAN headers
+ldx      #14
+ldh      [12]
+jne      #0x8100, try_ip4 ; no VLAN layer
+ldx      #18
+ldh      [16]
+jne      #0x8100, try_ip4 ; one VLAN layers
+ldx      #22
+ldh      [20]
+jne      #0x8100, try_ip4 ; two VLAN layers
+jmp      error
+
+; TODO: mpls labels support
+
+;
+; Process IPv4 packet
+; X now holds an offset to IP header
+;
+try_ip4:
+; Check IPv4 Ethertype, IP protocol
+jne      #0x0800, try_ip6
+ldb      [x + 9] ; check for protocol
+jne      #0x6, error
+
+; save IP hdr offset to M[0]
+stx      M[0]
+
+; load two first bytes (Ver/THL+TOS) of IP packet
+ldh      [x + 0]
+
+; store IP hdr len to M[1]
+; and then convert it to octets
+and      #0x0f00
+st       M[1] ; 0x45ff -> 0x0500 -> M[1]
+rsh      #6
+
+; move index register to start of TCP
+; by adding IP hdr len to X
+add      %x
+tax
+
+; XXX: here you can do some checks
+; on src or dst port values
+; for example filter out non HTTPS traffic
+ldh      [x + 0]
+jeq      #443, port_match
+ldh      [x + 2]
+jne      #443, error
+port_match:
+
+; load word from TCP at chosen offset to position
+; TCP hdr len right as the 2-nd byte and mask out
+ld       [x + 11] ; TCP 'data offset' field MINUS 1 byte
+and      #0xf00000 ; 0xXXa3XXXX -> 0x00a00000
+or       #0x040000 ; 0x00a00000 -> 0x00a40000 add IP version
+
+; construct the answer
+tax
+ld       M[1]
+or       %x
+tax
+ld       M[0]
+or       %x
+ret      %a
+
+try_ip6:
+; TODO
+jne      #0x86dd, error
+ret      #0
+
+error:
+ret      #0
+
+; debug:
+; ret      #ffffffff
