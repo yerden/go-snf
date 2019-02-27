@@ -9,7 +9,6 @@ package snf
 /*
 #include <snf.h>
 #include "receiver.h"
-#include "filter.h"
 */
 import "C"
 import (

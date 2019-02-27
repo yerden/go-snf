@@ -54,7 +54,6 @@ import (
 // #cgo CFLAGS: -I/opt/snf/include
 // #cgo LDFLAGS: -L/opt/snf/lib -lsnf -lpcap
 // #include <snf.h>
-// #include <filter.h>
 import "C"
 
 // Underlying port's state (DOWN or UP)

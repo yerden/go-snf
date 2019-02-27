@@ -7,10 +7,21 @@
 package snf
 
 /*
+#include <stdint.h>
 #include <stdlib.h>
 #include <pcap.h>
 #include <string.h>
-#include "filter.h"
+
+int go_bpf_test(uintptr_t pfp, const struct pcap_pkthdr *hdr,
+		const u_char * pkt, int count)
+{
+	int n, res;
+	struct bpf_program *fp = (typeof(fp))pfp;
+	for (n = 0; n < count; n++)
+		res = pcap_offline_filter(fp, hdr, pkt);
+
+	return res;
+}
 */
 import "C"
 
@@ -86,9 +97,8 @@ func (rr *RingReceiver) SetBPF(snaplen int, expr string) error {
 
 func compileBPF(snaplen int, expr string) ([]bpf.RawInstruction, error) {
 	var fp C.struct_bpf_program
-	var p *C.pcap_t
 
-	p = C.pcap_open_dead(C.DLT_EN10MB, C.int(snaplen))
+	p := C.pcap_open_dead(C.DLT_EN10MB, C.int(snaplen))
 	if p == nil {
 		return nil, errors.New("unable to create pcap handle")
 	}
@@ -97,8 +107,7 @@ func compileBPF(snaplen int, expr string) ([]bpf.RawInstruction, error) {
 	cExpr := C.CString(expr)
 	defer C.free(unsafe.Pointer(cExpr))
 
-	ret := int(C.pcap_compile(p, &fp, cExpr, 1, C.PCAP_NETMASK_UNKNOWN))
-	if ret < 0 {
+	if C.pcap_compile(p, &fp, cExpr, 1, C.PCAP_NETMASK_UNKNOWN) < 0 {
 		return nil, errors.New(C.GoString(C.pcap_geterr(p)))
 	}
 	defer C.pcap_freecode(&fp)
