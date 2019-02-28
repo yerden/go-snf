@@ -181,17 +181,6 @@ type RingQInfo struct {
 	Free uintptr
 }
 
-// InjectStats is a sructure to return statistics from an injection handle.  The
-// hardware-specific counters (nic_) apply to all injection handles.
-type InjectStats struct {
-	// Number of packets sent by this injection endpoint
-	InjPktSend uint64
-	// Number of total packets sent by Hardware Interface
-	NicPktSend uint64
-	// Number of raw bytes sent by Hardware Interface (see nic_bytes_recv)
-	NicBytesSend uint64
-}
-
 // RecvReq is a descriptor of a packet received on a data ring.
 type RecvReq struct {
 	// Pointer to packet directly in data ring
