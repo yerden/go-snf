@@ -21,6 +21,4 @@ Please note that your project executable would be linked to `libsnf` dynamically
 ### Caveats
 CI build currently does only static code checks. No build is performed due to third-party proprietary library dependency. Locally, you can run some unit tests supplied in this package.
 
-No support for packet injection is implemented currently. If you need this feature, feel free to contribute and/or contact authors of the package.
-
 The package is under development so API may experience some changes. Any contributions from Myricom NICs users are welcome.
