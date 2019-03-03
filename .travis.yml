@@ -43,7 +43,7 @@ script:
   - misspell -error .
   # - golangci-lint run -E gofmt -E gocyclo --tests=false
   # - go vet
-  - gofmt -d -e -s .
+  - test -z $(gofmt -l -s .)
   - gocyclo .
   - ineffassign .
   - golint . || (exit 0)
