@@ -55,3 +55,8 @@ func IsEbusy(err error) bool {
 func IsEnomsg(err error) bool {
 	return syscall.Errno(syscall.ENOMSG) == err
 }
+
+// IsEnotsup returns true if an error is ENOTSUP.
+func IsEnotsup(err error) bool {
+	return syscall.Errno(syscall.ENOTSUP) == err
+}
