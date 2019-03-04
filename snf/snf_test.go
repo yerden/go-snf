@@ -3,6 +3,7 @@
 // Use of this source code is governed by MIT license which
 // can be found in the LICENSE file in the root of the source
 // tree.
+
 package snf
 
 import (
@@ -58,6 +59,58 @@ func TestInit(t *testing.T) {
 	defer teardown(t)
 
 	assertFail(err == nil)
+}
+
+func TestInject(t *testing.T) {
+	assertFail := newAssert(t, true)
+	assert := newAssert(t, false)
+
+	teardown, err := setup(t)
+	defer teardown(t)
+	assertFail(err == nil)
+
+	h, err := OpenInjectHandle(0, 0)
+	assertFail(err == nil)
+	defer h.Close()
+
+	signal.Notify(h.SigChannel(), syscall.SIGUSR1)
+
+	eth := []byte{
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // dst mac
+		0x0, 0x11, 0x22, 0x33, 0x44, 0x55, // src mac
+		0x08, 0x0, // ether type
+	}
+
+	ip := []byte{
+		0x45, 0x0, 0x0, 0x3c, 0xa6, 0xc3,
+		0x40, 0x0, 0x40, 0x06, 0x3d, 0xd8, // ip header
+		0xc0, 0xa8, 0x50, 0x2f, // src ip
+		0xc0, 0xa8, 0x50, 0x2c, // dst ip
+	}
+
+	tcp := []byte{
+		0xaf, 0x14, // src port
+		0x0, 0x50, // dst port
+	}
+
+	packet := append(append(eth, ip...), tcp...)
+
+	s := h.NewSender(time.Second, 0)
+	assert(s.Send(packet) == nil)
+	assert(s.SendVec(eth, ip, tcp) == nil)
+	err = s.Sched(1000, packet)
+	assert(IsEnotsup(err) || err == nil)
+	err = s.SchedVec(1000, eth, ip, tcp)
+	assert(IsEnotsup(err) || err == nil)
+
+	// kiling spree and wait a bit
+	syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
+	time.Sleep(100 * time.Millisecond)
+
+	assert(s.Send(packet) == io.EOF)
+	assert(s.SendVec(eth, ip, tcp) == io.EOF)
+	assert(s.Sched(1000, packet) == io.EOF)
+	assert(s.SchedVec(1000, eth, ip, tcp) == io.EOF)
 }
 
 func TestHandleRing(t *testing.T) {
