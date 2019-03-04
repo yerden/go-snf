@@ -5,7 +5,25 @@
 
 package snf
 
-// #include <snf.h>
+/* #include <snf.h>
+int go_inject_send_v(snf_inject_t inj, int timeout_ms, int flags,
+       uintptr_t frags_vec, int nfrags,
+       uint32_t length_hint)
+{
+	return snf_inject_send_v(inj, timeout_ms, flags,
+	   (struct snf_pkt_fragment *)frags_vec, nfrags,
+	   length_hint);
+}
+
+int go_inject_sched_v(snf_inject_t inj, int timeout_ms, int flags,
+       uintptr_t frags_vec, int nfrags,
+       uint32_t length_hint, uint64_t delay_ns)
+{
+	return snf_inject_sched_v(inj, timeout_ms, flags,
+	   (struct snf_pkt_fragment *)frags_vec, nfrags,
+	   length_hint, delay_ns);
+}
+*/
 import "C"
 
 import (
@@ -179,25 +197,23 @@ func (h *InjectHandle) NewSender(timeout time.Duration, flags int) *Sender {
 	}
 }
 
-// make fragments vector out of slice of slices and calculate overall
-// length of packet's fragments to use as a hint for SNF injection
-// API.
-func makeFrags(pkt [][]byte, frags []C.struct_snf_pkt_fragment) (C.uint, []C.struct_snf_pkt_fragment) {
-	if d := len(pkt) - len(frags); d > 0 {
-		frags = append(frags, make([]C.struct_snf_pkt_fragment, d)...)
-	} else {
-		frags = frags[:len(pkt)]
-	}
-
-	var sz C.uint
-	for i := range frags {
-		data := pkt[i]
+// make fragments vector out of slice of slices and calculate
+// overall length of packet's fragments to use as a hint for SNF
+// injection API.
+func makeFrags(pkt [][]byte, frags []C.struct_snf_pkt_fragment) (sz C.uint) {
+	for i, data := range pkt {
 		frags[i].ptr = unsafe.Pointer(&data[0])
 		frags[i].length = C.uint(len(data))
 		sz += frags[i].length
 	}
 
-	return sz, frags
+	return sz
+}
+
+func (s *Sender) checkFragBuf(length int) {
+	if d := length - len(s.frags); d > 0 {
+		s.frags = append(s.frags, make([]C.struct_snf_pkt_fragment, d)...)
+	}
 }
 
 // Send sends a packet and optionally block until send resources are
@@ -272,9 +288,11 @@ func (s *Sender) SendVec(pkt ...[]byte) error {
 	if atomic.LoadInt32(s.state) != stateOk {
 		return io.EOF
 	}
-	hint, frags := makeFrags(pkt, s.frags)
-	return retErr(C.snf_inject_send_v(s.inj, s.timeoutMs, s.flags,
-		&frags[0], C.int(len(frags)), hint))
+	s.checkFragBuf(len(pkt))
+	hint := makeFrags(pkt, s.frags)
+	return retErr(C.go_inject_send_v(s.inj, s.timeoutMs, s.flags,
+		C.uintptr_t(uintptr(unsafe.Pointer(&s.frags[0]))), C.int(len(pkt)),
+		hint))
 }
 
 // Sched sends a packet with hardware delay and optionally blocks
@@ -362,7 +380,9 @@ func (s *Sender) SchedVec(delayNs int64, pkt ...[]byte) error {
 	if atomic.LoadInt32(s.state) != stateOk {
 		return io.EOF
 	}
-	hint, frags := makeFrags(pkt, s.frags)
-	return retErr(C.snf_inject_sched_v(s.inj, s.timeoutMs, s.flags,
-		&frags[0], C.int(len(frags)), hint, C.ulong(delayNs)))
+	s.checkFragBuf(len(pkt))
+	hint := makeFrags(pkt, s.frags)
+	return retErr(C.go_inject_sched_v(s.inj, s.timeoutMs, s.flags,
+		C.uintptr_t(uintptr(unsafe.Pointer(&s.frags[0]))), C.int(len(pkt)),
+		hint, C.ulong(delayNs)))
 }
