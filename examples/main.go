@@ -5,6 +5,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/yerden/go-snf/snf"
@@ -65,8 +66,8 @@ func main() {
 			n := 5
 			defer log.Printf("ring #%d received %d packets\n", i, n)
 			rcv := ring.NewReceiver(
-				1,   // 1 ms to wait for packets
-				200, // size of packet bunch
+				time.Millisecond, // 1 ms to wait for packets
+				200,              // size of packet bunch
 			)
 			defer rcv.Free()
 			for j := 0; j < n; j++ {
