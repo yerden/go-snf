@@ -744,28 +744,20 @@ func SetAppID(id int32) error {
 
 // Stats returns statistics from a receive ring.
 //
-// This call is provided as a convenience and should not be
-// relied on for time-critical applications or for high levels of
-// accuracy.  Statistics are only updated by the NIC periodically.
+// This call is provided as a convenience and should not be relied on
+// for time-critical applications or for high levels of accuracy.
+// Statistics are only updated by the NIC periodically.
 //
 // Administrative clearing of NIC counters while a Sniffer-based
-// application is running may cause some of the counters to be incorrect.
+// application is running may cause some of the counters to be
+// incorrect.
 func (r *Ring) Stats() (*RingStats, error) {
 	if atomic.LoadInt32(&r.state) != stateOk {
 		return nil, io.EOF
 	}
-	var stats C.struct_snf_ring_stats
-	err := retErr(C.snf_ring_getstats(r.ring, &stats))
-	return &RingStats{
-		NicPktRecv:      uint64(stats.nic_pkt_recv),
-		NicPktOverflow:  uint64(stats.nic_pkt_overflow),
-		NicPktBad:       uint64(stats.nic_pkt_bad),
-		RingPktRecv:     uint64(stats.ring_pkt_recv),
-		RingPktOverflow: uint64(stats.ring_pkt_overflow),
-		NicBytesRecv:    uint64(stats.nic_bytes_recv),
-		SnfPktOverflow:  uint64(stats.snf_pkt_overflow),
-		NicPktDropped:   uint64(stats.nic_pkt_dropped),
-	}, err
+	stats := &RingStats{}
+	return stats, retErr(C.snf_ring_getstats(r.ring,
+		(*C.struct_snf_ring_stats)(unsafe.Pointer(stats))))
 }
 
 // PortInfo returns information for the ring.
