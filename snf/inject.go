@@ -149,6 +149,9 @@ func (h *InjectHandle) Close() error {
 // for time-critical applications or for high levels of accuracy.
 // Statistics are only updated by the NIC periodically.
 func (h *InjectHandle) GetStats() (*InjectStats, error) {
+	if atomic.LoadInt32(&h.state) != stateOk {
+		return nil, io.EOF
+	}
 	stats := &InjectStats{}
 	return stats, retErr(C.snf_inject_getstats(h.inj,
 		(*C.struct_snf_inject_stats)(unsafe.Pointer(stats))))
@@ -160,6 +163,9 @@ func (h *InjectHandle) GetStats() (*InjectStats, error) {
 // reads information kept in kernel host memory (i.e. no PCI bus
 // reads).
 func (h *InjectHandle) GetSpeed() (speed uint64, err error) {
+	if atomic.LoadInt32(&h.state) != stateOk {
+		return 0, io.EOF
+	}
 	err = retErr(C.snf_get_injection_speed(h.inj, (*C.ulong)(&speed)))
 	return
 }
