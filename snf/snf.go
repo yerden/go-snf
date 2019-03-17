@@ -5,35 +5,36 @@
 // tree.
 
 /*
-Package snf is a wrapper for SNF library to support direct interaction with
-Myricom/CSPI boards.
+Package snf is a wrapper for SNF library to support direct interaction
+with Myricom/CSPI boards.
 
 The purpose of the package is to avoid using libpcap-wrapped SNF
-functionality in favor of more flexible and full-featured SNF C binding.
-Hence it diminishes (but not fully negates, see below) dependency on
-libpcap library.
+functionality in favor of more flexible and full-featured SNF C
+binding. Hence it diminishes (but not fully negates, see below)
+dependency on libpcap library.
 
-In order to be able to use google/gopacket (layers etc.) functionality,
-some interfaces in those packages are satisfied. Any feature requests
-regarding extension of such integration are welcomed.
+In order to be able to use google/gopacket (layers etc.)
+functionality, some interfaces in those packages are satisfied. Any
+feature requests regarding extension of such integration are welcomed.
 
 Most part of the package is a pretty much straightforward SNF API
 wrappers. On top of that, RingReceiver is provided which wraps bulk
-packet operation. RingReceiver also satisfies gopacket.ZeroCopyPacketDataSource
-in case you work with google/gopacket/pcap.
+packet operation. RingReceiver also satisfies
+gopacket.ZeroCopyPacketDataSource in case you work with
+google/gopacket/pcap.
 
 The package utilizes BPF virtual machine from libpcap. Since original
-SNF API doesn't expose any filtering service RingReceiver object provides
-SetBPF method to apply offline BPF filtering.
+SNF API doesn't expose any filtering service RingReceiver object
+provides SetBPF method to apply offline BPF filtering.
 
-It is extremely important from the system point of view that all the rings
-and handles are properly closed upon program exit. Thus, some work was
-done to handle signals in this library with minimal intrusion. It is
-programmer's choice of whether to use this package's signal handling or
-devise a custom one.
+It is extremely important from the system point of view that all the
+rings and handles are properly closed upon program exit. Thus, some
+work was done to handle signals in this library with minimal
+intrusion. It is programmer's choice of whether to use this package's
+signal handling or devise a custom one.
 
-Some examples are provided to show various use cases, features, limitations
-and so on.
+Some examples are provided to show various use cases, features,
+limitations and so on.
 */
 package snf
 
@@ -91,7 +92,7 @@ const (
 // specified to let the implementation know which fields
 // are significant when generating the hash. By default, RSS
 // is computed on IPv4/IPv6 addresses and source/destination
-// ports  when the protocol is TCP or UDP or SCTP, for
+// ports when the protocol is TCP or UDP or SCTP, for
 // example, "RssIP | RssSrcPort | RssDstPort" means IP
 // addresses and TCP/UDP/SCTP ports will be applied in the
 // hash.
@@ -109,33 +110,36 @@ const (
 )
 
 const (
-	// PShared flag states that device can be process-sharable.  This
+	// PShared flag states that device can be process-sharable. This
 	// allows multiple independent processes to share rings on the
-	// capturing device.  This option can be used to design a custom
-	// capture solution but is also used in libpcap when multiple rings are
-	// requested.  In this scenario, each libpcap device sees a fraction of
-	// the traffic if multiple rings are used unless the RxDuplicate option
-	// is used, in which case each libpcap device sees the same incoming
-	// packets.
+	// capturing device. This option can be used to design a custom
+	// capture solution but is also used in libpcap when multiple
+	// rings are requested. In this scenario, each libpcap device
+	// sees a fraction of the traffic if multiple rings are used
+	// unless the RxDuplicate option is used, in which case each
+	// libpcap device sees the same incoming packets.
 	PShared = C.SNF_F_PSHARED
-	// AggregatePortMask shows that device can be opened for port aggregation
-	// (or merging).  When this flag is passed, the portnum parameter in
-	// OpenHandle() is interpreted as a bitmask where each set bit position
-	// represents a port number. The  Sniffer library will then attempt to
-	// open every portnum with its bit set in order to merge the incoming data
-	// to the user from multiple ports. Subsequent calls to OpenRing() return
-	// a ring handle that internally opens a ring on all underlying ports.
+	// AggregatePortMask shows that device can be opened for port
+	// aggregation (or merging). When this flag is passed, the portnum
+	// parameter in OpenHandleWithOpts() is interpreted as a bitmask
+	// where each set bit position represents a port number. The
+	// Sniffer library will then attempt to open every portnum with
+	// its bit set in order to merge the incoming data to the user
+	// from multiple ports. Subsequent calls to OpenRing() return a
+	// ring handle that internally opens a ring on all underlying
+	// ports.
 	AggregatePortMask = C.SNF_F_AGGREGATE_PORTMASK
-	// RxDuplicate shows that device can duplicate packets to multiple rings
-	// as opposed to applying RSS in order to split incoming packets across
-	// rings.  Users should be aware that with N rings opened, N times the link
-	// bandwidth is necessary to process incoming packets without drops.  The
-	// duplication happens in the host rather than the NIC, so while only up to
-	// 10Gbits of traffic crosses the PCIe, N times that bandwidth is necessary
+	// RxDuplicate shows that device can duplicate packets to multiple
+	// rings as opposed to applying RSS in order to split incoming
+	// packets across rings. Users should be aware that with N rings
+	// opened, N times the link bandwidth is necessary to process
+	// incoming packets without drops. The duplication happens in the
+	// host rather than the NIC, so while only up to 10Gbits of
+	// traffic crosses the PCIe, N times that bandwidth is necessary
 	// on the host.
 	//
-	// When duplication is enabled, RSS options are ignored since every packet
-	// is delivered to every ring.
+	// When duplication is enabled, RSS options are ignored since
+	// every packet is delivered to every ring.
 	RxDuplicate = C.SNF_F_RX_DUPLICATE
 )
 
@@ -419,8 +423,8 @@ func OpenHandleDefaults(portnum uint32) (*Handle, error) {
 //
 // EBUSY: Device is already opened
 //
-// EINVAL: Invalid argument passed, most probably num_rings (if
-// not, check syslog).
+// EINVAL: Invalid argument passed, most probably num_rings (if not,
+// check syslog).
 //
 // E2BIG: Driver could not allocate requested dataring_sz (check
 // syslog).
@@ -483,12 +487,12 @@ func (h *Handle) LinkSpeed() (uint64, error) {
 	return uint64(res), err
 }
 
+// Start packet capture on a port.  Packet capture is only started if
+// it is currently stopped or has not yet started for the first time.
 //
-// Start packet capture on a port.  Packet capture is only started if it
-// is currently stopped or has not yet started for the first time.
-//
-// It is safe to restart packet capture via Start() and Stop() methods.
-// This call must be called before any packet can be received.
+// It is safe to restart packet capture via Start() and Stop()
+// methods.  This call must be called before any packet can be
+// received.
 func (h *Handle) Start() error {
 	if atomic.LoadInt32(&h.state) != stateOk {
 		return io.EOF
@@ -496,15 +500,14 @@ func (h *Handle) Start() error {
 	return retErr(C.snf_start(h.dev))
 }
 
-// Stop packet capture on a port.  This function should be used carefully
-// in multi-process mode as a single stop command stops packet capture on
-// all rings.  It is usually best to simply Close() a ring to
-// stop capture on a ring.
+// Stop packet capture on a port.  This function should be used
+// carefully in multi-process mode as a single stop command stops
+// packet capture on all rings.  It is usually best to simply Close()
+// a ring to stop capture on a ring.
 //
-// Stop instructs the NIC to drop all packets until the next
-// Start() or until the port is closed.  The NIC only resumes
-// delivering packets when the port is closed, not when traffic is
-// stopped.
+// Stop instructs the NIC to drop all packets until the next Start()
+// or until the port is closed.  The NIC only resumes delivering
+// packets when the port is closed, not when traffic is stopped.
 func (h *Handle) Stop() error {
 	if atomic.LoadInt32(&h.state) != stateOk {
 		return io.EOF
@@ -514,17 +517,17 @@ func (h *Handle) Stop() error {
 
 // Close port.
 //
-// This function can be closed once all opened rings (if any) are closed
-// through ring's Close() method.  Once a port is determined to be
-// closable, it is implicitly called as if a call had been previously made
-// to Stop() method.
+// This function can be closed once all opened rings (if any) are
+// closed through ring's Close() method.  Once a port is determined to
+// be closable, it is implicitly called as if a call had been
+// previously made to Stop() method.
 //
-// EBUSY is returned if some rings are still opened and the port cannot be
-// closed (yet).
+// EBUSY is returned if some rings are still opened and the port
+// cannot be closed (yet).
 //
-// If successful, all resources allocated at open time are
-// unallocated and the device switches from Sniffer mode to Ethernet mode
-// such that the Ethernet driver resumes receiving packets.
+// If successful, all resources allocated at open time are unallocated
+// and the device switches from Sniffer mode to Ethernet mode such
+// that the Ethernet driver resumes receiving packets.
 func (h *Handle) Close() (err error) {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
@@ -549,9 +552,9 @@ func (h *Handle) Close() (err error) {
 // environment variable.  For more control over ring allocation,
 // consider using OpenRingID() method instead.
 //
-// Please be sure that you close the ring once you've done
-// working on it. Leaking rings may lead to packet drops in
-// neighbour applications working on the same NIC.
+// Please be sure that you close the ring once you've done working on
+// it. Leaking rings may lead to packet drops in neighbour
+// applications working on the same NIC.
 //
 // If successful, a call to Start() method is required to the
 // Sniffer-mode NIC to deliver packets to the host.
@@ -564,22 +567,21 @@ func (h *Handle) OpenRing() (ring *Ring, err error) {
 
 // OpenRingID opens a ring from an opened port.
 //
-// ring_id Ring number to open, from 0 to num_rings - 1.  If
-// the value is -1, this function behaves as if OpenRing()
-// was called.
+// ring_id Ring number to open, from 0 to num_rings - 1. If the value
+// is -1, this function behaves as if OpenRing() was called.
 //
 // Ring handle allocated if the call is successful.
 //
-// EBUSY is returned if id == -1, Too many rings already opened.
-// if id >= 0, that ring is already opened.
+// EBUSY is returned if id == -1, Too many rings already opened.  if
+// id >= 0, that ring is already opened.
 //
-// Unlike OpenRing(), this function ignores the environment
-// variable SNF_RING_ID since the expectation is that users want to
-// directly control ring allocation (unlike through libpcap).
+// Unlike OpenRing(), this function ignores the environment variable
+// SNF_RING_ID since the expectation is that users want to directly
+// control ring allocation (unlike through libpcap).
 //
-// Please be sure that you close the ring once you've done
-// working on it. Leaking rings may lead to packet drops in
-// neighbour applications working on the same NIC.
+// Please be sure that you close the ring once you've done working on
+// it. Leaking rings may lead to packet drops in neighbour
+// applications working on the same NIC.
 //
 // If successful, a call to Handle's Start() is required to the
 // Sniffer-mode NIC to deliver packets to the host.
@@ -597,8 +599,7 @@ func (h *Handle) OpenRingID(id int) (ring *Ring, err error) {
 	return
 }
 
-// Rings returns a list of all rings opened through
-// this handle.
+// Rings returns a list of all rings opened through this handle.
 func (h *Handle) Rings() (r []*Ring) {
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
@@ -635,36 +636,36 @@ func (h *Handle) Wait() {
 	defer wg.Wait()
 }
 
-// SigChannel returns a channel for signal notifications. signal.Notify()
-// may then be used on this channel.
+// SigChannel returns a channel for signal notifications.
+// signal.Notify() may then be used on this channel.
 //
-// Signal is handled by raising the flag in all subsidiary rings.
-// All consequent receiving operations on those rings and the handle
-// will return io.EOF error. As a rule of thumb that means that you
-// should Close() those rings and the handle.
+// Signal is handled by raising the flag in all subsidiary rings.  All
+// consequent receiving operations on those rings and the handle will
+// return io.EOF error. As a rule of thumb that means that you should
+// Close() those rings and the handle.
 func (h *Handle) SigChannel() chan<- os.Signal {
 	return h.sigCh
 }
 
 // Close a ring
 //
-// This function is used to inform the underlying device that no further
-// calls to Recv() will be made.  If the device is not
-// subsequently closed (Handle's Close()), all packets that would have been
-// delivered to this ring are dropped.  Also, by calling this function,
-// users confirm that all packet processing for packets obtained on this
-// ring via ring's Recv() is complete.
+// This function is used to inform the underlying device that no
+// further calls to Recv() will be made.  If the device is not
+// subsequently closed (Handle's Close()), all packets that would have
+// been delivered to this ring are dropped.  Also, by calling this
+// function, users confirm that all packet processing for packets
+// obtained on this ring via ring's Recv() is complete.
 //
 // Returns 0 (successful).
 //
-// The user has processed the last packet obtained with
-// Recv() and such and the device can safely be closed via
-// Handle's Close() if all other rings are also closed.
-// All packet data memory returned by Ring or RingReceiver
-// is reclaimed by SNF API and cannot be dereferenced.
+// The user has processed the last packet obtained with Recv() and
+// such and the device can safely be closed via Handle's Close() if
+// all other rings are also closed.  All packet data memory returned
+// by Ring or RingReceiver is reclaimed by SNF API and cannot be
+// dereferenced.
 //
-// If a ring is closed, all receive operations with that ring
-// will return io.EOF error.
+// If a ring is closed, all receive operations with that ring will
+// return io.EOF error.
 func (r *Ring) Close() error {
 	h := r.h
 	h.mtx.Lock()
@@ -681,9 +682,9 @@ func (r *Ring) Close() error {
 //
 // Returns one of Timesource state constants.
 //
-// The cost of retrieving the timesource state requires a
-// function call that reads state kept in kernel host memory
-// (i.e. no PCI bus reads).
+// The cost of retrieving the timesource state requires a function
+// call that reads state kept in kernel host memory (i.e. no PCI bus
+// reads).
 func (h *Handle) TimeSourceState() (int, error) {
 	if atomic.LoadInt32(&h.state) != stateOk {
 		return 0, io.EOF
@@ -718,24 +719,25 @@ func PortMask() (linkup, valid uint32, err error) {
 // SetAppID sets the application ID.
 //
 // The user may set the application ID after the call to Init(), but
-// before OpenHandle().  When the application ID is set, Sniffer duplicates
-// receive packets to multiple applications.  Each application must have
-// a unique ID.  Then, each application may utilize a different number of
-// rings.  The application can be a process with multiple rings and threads.
-// In this case all rings have the same ID.  Or, multiple processes may share
-// the same application ID.
+// before opening handle.  When the application ID is set, Sniffer
+// duplicates receive packets to multiple applications.  Each
+// application must have a unique ID.  Then, each application may
+// utilize a different number of rings.  The application can be a
+// process with multiple rings and threads.  In this case all rings
+// have the same ID.  Or, multiple processes may share the same
+// application ID.
 //
 // The user may store the application ID in the environment variable
-// SNF_APP_ID, instead of calling this function.  Both actions have the same
-// effect.  SNF_APP_ID overrides the ID set via SetAppID().
+// SNF_APP_ID, instead of calling this function.  Both actions have
+// the same effect.  SNF_APP_ID overrides the ID set via SetAppID().
 //
-// The user may not run a mix of processes with valid application IDs (not -1)
-// and processes with no IDs (-1).  Either all processes have valid IDs or
-// none of them do.
+// The user may not run a mix of processes with valid application IDs
+// (not -1) and processes with no IDs (-1).  Either all processes have
+// valid IDs or none of them do.
 //
-// id is a 32-bit signed integer representing the application ID.
-// A valid ID is any value except -1. -1 is reserved and represents
-// "no ID".
+// id is a 32-bit signed integer representing the application ID.  A
+// valid ID is any value except -1. -1 is reserved and represents "no
+// ID".
 //
 // EINVAL is returned if Init() has not been called or id is -1.
 func SetAppID(id int32) error {
@@ -792,38 +794,38 @@ func (r *Ring) PortInfo() ([]*RingPortInfo, error) {
 
 // Recv receives next packet from a receive ring.
 //
-// This function is used to return the next available packet in a receive
-// ring.  The function can block indefinitely, for a specific timeout or
-// be used as a non-blocking call with a timeout of 0.
+// This function is used to return the next available packet in a
+// receive ring.  The function can block indefinitely, for a specific
+// timeout or be used as a non-blocking call with a timeout of 0.
 //
-// timeout is a receive timeout to control how the function blocks
-// for the next packet. If the value is less than 0, the function can
-// block indefinitely.  If the value is 0, the function is guaranteed to
-// never enter a blocking state and returns EAGAIN unless there is a
-// packet waiting.  If the value is greater than 0, the caller indicates
-// a desired wait time in milliseconds.  With a non-zero wait time, the
-// function only blocks if there are no outstanding packets.  If the
-// timeout expires before a packet can be received, the function returns
-// EAGAIN (and not ETIMEDOUT).  In all cases, users should expect that
-// the function may return EINTR as the result of signal delivery.
+// timeout is a receive timeout to control how the function blocks for
+// the next packet. If the value is less than 0, the function can
+// block indefinitely.  If the value is 0, the function is guaranteed
+// to never enter a blocking state and returns EAGAIN unless there is
+// a packet waiting.  If the value is greater than 0, the caller
+// indicates a desired wait time in milliseconds.  With a non-zero
+// wait time, the function only blocks if there are no outstanding
+// packets.  If the timeout expires before a packet can be received,
+// the function returns EAGAIN (and not ETIMEDOUT).  In all cases,
+// users should expect that the function may return EINTR as the
+// result of signal delivery.
 //
 // req is a Receive Packet structure, only updated when the function
 // returns 0 for a successful packet receive (RecvReq).
 //
-// Return values:
-// 0 is a successful packet delivery, recv_req is updated with packet
-// information.
-// EINTR means the call was interrupted by a signal handler.
-// EAGAIN means that no packets are available (only when timeout is >= 0).
+// Return values: 0 is a successful packet delivery, recv_req is
+// updated with packet information.  EINTR means the call was
+// interrupted by a signal handler.  EAGAIN means that no packets are
+// available (only when timeout is >= 0).
 //
-// The returned packet always points directly into the receive
-// ring where the NIC has DMAed the packet (there are no copies).  As
-// such, the user obtains a pointer to library/driver allocated memory.
-// Users can modify the contents of the packets but should remain within
-// the slice boundaries.
+// The returned packet always points directly into the receive ring
+// where the NIC has DMAed the packet (there are no copies).  As such,
+// the user obtains a pointer to library/driver allocated memory.
+// Users can modify the contents of the packets but should remain
+// within the slice boundaries.
 //
-// Upon calling the function, the library assumes that the user
-// is done processing the previous packet.  The same assumption is made
+// Upon calling the function, the library assumes that the user is
+// done processing the previous packet.  The same assumption is made
 // when the ring is closed (ring's Close() method).
 func (r *Ring) Recv(timeout time.Duration, req *RecvReq) error {
 	if atomic.LoadInt32(&r.state) != stateOk {
