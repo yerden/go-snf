@@ -127,7 +127,7 @@ func TestHandleRing(t *testing.T) {
 	assert(len(ifa) > 0)
 
 	portnum := ifa[0].PortNum
-	h, err := OpenHandleDefaults(portnum)
+	h, err := OpenHandleWithOpts(portnum)
 	assert(err == nil)
 	assert(h != nil)
 
@@ -178,7 +178,7 @@ func TestApp(t *testing.T) {
 	counters := make([]uint64, len(ifa))
 	// handle all ports
 	for i := range ifa {
-		h, err := OpenHandleDefaults(ifa[i].PortNum)
+		h, err := OpenHandleWithOpts(ifa[i].PortNum)
 		assert(err == nil)
 		assert(h != nil)
 		defer h.Wait()
@@ -239,7 +239,7 @@ func TestApp(t *testing.T) {
 	fmt.Println(counters)
 }
 
-func ExampleOpenHandle_first() {
+func ExampleOpenHandleWithOpts_first() {
 	// This shows how to initialize a handle
 
 	// First, initialize SNF library.
@@ -248,12 +248,13 @@ func ExampleOpenHandle_first() {
 	}
 
 	// Initialize handle for port 0
-	h, err := OpenHandle(
-		0,                           // number of port
-		3,                           // number of rings
-		RssIP|RssSrcPort|RssDstPort, // rss flags
-		PShared|RxDuplicate,         // flags
-		256,                         // Megabytes for dataring size
+	h, err := OpenHandleWithOpts(
+		0,                     // number of port
+		HandlerOptNumRings(3), // number of rings
+		HandlerOptRssFlags(RssIP|RssSrcPort|RssDstPort), // rss flags
+		HandlerOptFlags(PShared),
+		HandlerOptFlags(RxDuplicate), // flags
+		HandlerOptDataRingSize(256),  // Megabytes for dataring size
 	)
 
 	if err != nil {
@@ -266,14 +267,14 @@ func ExampleOpenHandle_first() {
 	// with default arguments which mostly imply
 	// that we use environment variables to
 	// alter the handle behaviour
-	h, err = OpenHandleDefaults(1)
+	h, err = OpenHandleWithOpts(1)
 	if err != nil {
 		return
 	}
 	defer h.Close()
 }
 
-func ExampleOpenHandle_second() {
+func ExampleOpenHandleWithOpts_second() {
 	// this function will exit only on signals
 	// SIGINT or SIGSEGV or when both goroutines
 	// handling rings will exit
@@ -282,7 +283,7 @@ func ExampleOpenHandle_second() {
 	}
 
 	// sample default handler
-	h, err := OpenHandleDefaults(0)
+	h, err := OpenHandleWithOpts(0)
 	if err != nil {
 		return
 	}
@@ -337,7 +338,7 @@ func ExampleOpenHandle_second() {
 
 func ExampleRingReceiver() {
 	var h *Handle
-	h, err := OpenHandleDefaults(0)
+	h, err := OpenHandleWithOpts(0)
 	if err != nil {
 		return
 	}
