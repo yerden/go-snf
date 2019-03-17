@@ -55,6 +55,18 @@ import (
 // #cgo CFLAGS: -I/opt/snf/include
 // #cgo LDFLAGS: -L/opt/snf/lib -lsnf -lpcap
 // #include <snf.h>
+//
+// void set_rss_flags(struct snf_rss_params *rss, int flags) {
+//   rss->mode = SNF_RSS_FLAGS;
+//   rss->params.rss_flags = flags;
+// }
+//
+// void set_rss_func(struct snf_rss_params *rss, void *fn, void *ctx)
+// {
+//   rss->mode = SNF_RSS_FUNCTION;
+//   rss->params.rss_function.rss_hash_fn = fn;
+//   rss->params.rss_function.rss_context = ctx;
+// }
 import "C"
 
 // Underlying port's state (DOWN or UP)
@@ -142,6 +154,19 @@ const (
 	// every packet is delivered to every ring.
 	RxDuplicate = C.SNF_F_RX_DUPLICATE
 )
+
+// snf_open() options container
+type handlerOpts struct {
+	numRings     C.int
+	rss          *C.struct_snf_rss_params
+	flags        C.int
+	dataRingSize C.long
+}
+
+// HandlerOption specifies an option for opening a Handle.
+type HandlerOption struct {
+	f func(*handlerOpts)
+}
 
 // IfAddrs is a structure to map Interfaces to Sniffer port numbers.
 type IfAddrs struct {
@@ -371,6 +396,7 @@ func GetIfAddrByName(name string) (*IfAddrs, error) {
 // According to SNF documentation this call would be equivalent to
 // OpenHandle(portnum, 0, 0, -1, 0)
 // although it's not clear how '-1' flags would be interpreted.
+// Also, this call is equivalent to OpenHandleWithOpts(portnum).
 //
 // portnum  Ports are numbered from 0 to N-1 where 'N' is the
 // number of Myricom ports available on the system.
@@ -378,41 +404,92 @@ func GetIfAddrByName(name string) (*IfAddrs, error) {
 // the port number by interface name or mac address if
 // there are multiple.
 //
-// See OpenHandle() for additional information.
+// See OpenHandleWithOpts() for additional information.
 func OpenHandleDefaults(portnum uint32) (*Handle, error) {
-	rssFlags := RssIP | RssSrcPort | RssDstPort
-	return OpenHandle(portnum, 0, rssFlags, -1, 0)
+	return OpenHandleWithOpts(portnum)
 }
 
-// OpenHandle opens a port for sniffing and allocates a device handle.
+// OpenHandleWithOpts opens a port for sniffing and allocates a device
+// handle with specified options. See documentation for various
+// options to see their applicability.
 //
-// portnum Port numbers can be interpreted as integers for a
-// specific port number or as a mask when
-// AggregatePortMask is specified in flags.  Port
-// information can be obtained through GetIfAddrs()
-// and active/valid masks are available with
-// PortMask() method. As a special case, if
-// portnum -1 is passed, the library will internally open
-// a portmask as in valid mask returned in PortMask().
+// portnum can be interpreted as an integer for a specific port number
+// or as a mask when AggregatePortMask is specified in flags option.
+// Port information can be obtained through GetIfAddrs() and
+// active/valid masks are available with PortMask() method. As a
+// special case, if portnum -1 is passed, the library will internally
+// open a portmask as in valid mask returned in PortMask().
+//
+// The function returns a Handle object and a possible error. If error
+// is nil the port is opened and a device handle is allocated (see
+// remarks). In this case, the NIC switches from Ethernet mode to
+// Capture mode and the Ethernet driver stops receiving packets.  If
+// successful, a call to Start() is required to the Sniffer-mode NIC
+// to deliver packets to the host, and this call must occur after at
+// least one ring is opened (OpenRing() method).
+//
+// Possible errors include:
+//
+// EBUSY: Device is already opened.
+//
+// EINVAL: Invalid argument passed, most probably num_rings (if not, check
+// syslog).
+//
+// E2BIG: Driver could not allocate requested dataring_sz (check syslog).
+//
+// ENOMEM: Either library or driver did not have enough memory to allocate
+// handle descriptors (but not data ring).
+//
+// ENODEV: Device portnum can't be opened.
+func OpenHandleWithOpts(portnum uint32, options ...HandlerOption) (*Handle, error) {
+	var h *Handle
+	var dev C.snf_handle_t
+	opts := &handlerOpts{
+		numRings:     0,
+		dataRingSize: 0,
+		rss:          nil,
+		flags:        -1,
+	}
+
+	for _, opt := range options {
+		opt.f(opts)
+	}
+
+	err := retErr(C.snf_open(C.uint(portnum), opts.numRings, opts.rss,
+		opts.dataRingSize, opts.flags, &dev))
+	if err == nil {
+		h = makeHandle(dev)
+		defer h.houseKeep()
+	}
+	return h, err
+}
+
+// OpenHandle opens a port for sniffing and allocates a device handle. This
+// function is mostly deprecated and use of OpenHandleWithOpts is strongly
+// encouraged.
+//
+// portnum can be interpreted as an integer for a specific port number
+// or as a mask when AggregatePortMask is specified in flags option.
+// Port information can be obtained through GetIfAddrs() and
+// active/valid masks are available with PortMask() method. As a
+// special case, if portnum -1 is passed, the library will internally
+// open a portmask as in valid mask returned in PortMask().
 //
 // num_rings Number of rings to allocate for receive-side scaling
-// feature, which determines how many different threads
-// can open their own ring via OpenRing().  If set
-// to 0 or less than zero, default value is used unless
-// SNF_NUM_RINGS is set in the environment.
+// feature, which determines how many different threads can open their
+// own ring via OpenRing().  If set to 0 or less than zero, default
+// value is used unless SNF_NUM_RINGS is set in the environment.
 //
 // rss_flags is RSS flags to use by receive side scaling.
 //
 // dataring_sz represents the total amount of memory to be used to
-// store incoming packet data for *all* rings to be
-// opened.  If the value is set to 0 or less than 0,
-// the library tries to choose a sensible default
-// unless SNF_DATARING_SIZE is set in the environment.
-// The value can be specified in megabytes (if it is
-// less than 1048576) or is otherwise considered to be
-// in bytes.  In either case, the library may slightly
-// adjust the user's request to satisfy alignment
-// requirements (typically 2MB boundaries).
+// store incoming packet data for *all* rings to be opened.  If the
+// value is set to 0 or less than 0, the library tries to choose a
+// sensible default unless SNF_DATARING_SIZE is set in the
+// environment.  The value can be specified in megabytes (if it is
+// less than 1048576) or is otherwise considered to be in bytes.  In
+// either case, the library may slightly adjust the user's request to
+// satisfy alignment requirements (typically 2MB boundaries).
 //
 // flags is a mask of flags documented in SNF API Reference.
 //
@@ -437,22 +514,100 @@ func OpenHandleDefaults(portnum uint32) (*Handle, error) {
 // If successful, the NIC switches from Ethernet mode to Capture mode
 // and the Ethernet driver stops receiving packets.
 //
-// If successful, a call to Start() is required to the
-// Sniffer-mode NIC to deliver packets to the host, and this call
-// must occur after at least one ring is opened (OpenRing() method).
+// If successful, a call to Start() is required to the Sniffer-mode
+// NIC to deliver packets to the host, and this call must occur after
+// at least one ring is opened (OpenRing() method).
+//
+// Deprecated: Handles should be opened with OpenHandleWithOpts().
 func OpenHandle(portnum uint32, numRings, rssFlags, flags int, dataringSz int64) (*Handle, error) {
-	var h *Handle
-	var dev C.snf_handle_t
-	var rss C.struct_snf_rss_params
-	rss.mode = C.SNF_RSS_FLAGS
-	// workaround C 'union'
-	*(*int)(unsafe.Pointer(&rss.params[0])) = rssFlags
-	err := retErr(C.snf_open(C.uint(portnum), C.int(numRings), &rss, C.long(dataringSz), C.int(flags), &dev))
-	if err == nil {
-		h = makeHandle(dev)
-		defer h.houseKeep()
-	}
-	return h, err
+	return OpenHandleWithOpts(portnum,
+		HandlerOptFlags(flags),
+		HandlerOptNumRings(numRings),
+		HandlerOptRssFlags(rssFlags),
+		HandlerOptDataRingSize(dataringSz))
+}
+
+// HandlerOptNumRings specifies number of rings to allocate for
+// receive-side scaling feature, which determines how many different
+// threads can open their own ring via OpenRing(). If not specified or
+// set to 0 or less than zero, default value is used unless
+// SNF_NUM_RINGS is set in the environment.
+func HandlerOptNumRings(n int) HandlerOption {
+	return HandlerOption{func(opts *handlerOpts) {
+		opts.numRings = C.int(n)
+	}}
+}
+
+// HandlerOptDataRingSize specifies the total amount of memory to be
+// used to store incoming packet data for *all* rings to be opened. If
+// the value is set to 0 or less than 0, the library tries to choose a
+// sensible default unless SNF_DATARING_SIZE is set in the
+// environment.  The value can be specified in megabytes (if it is
+// less than 1048576) or is otherwise considered to be in bytes.  In
+// either case, the library may slightly adjust the user's request to
+// satisfy alignment requirements (typically 2MB boundaries).
+func HandlerOptDataRingSize(n int64) HandlerOption {
+	return HandlerOption{func(opts *handlerOpts) {
+		opts.dataRingSize = C.long(n)
+	}}
+}
+
+// HandlerOptFlags specifies a mask of flags documented in SNF API
+// Reference.  You may specify a number of flags. They will be OR'ed
+// before applying to the Handle.
+func HandlerOptFlags(flags int) HandlerOption {
+	return HandlerOption{func(opts *handlerOpts) {
+		if flags < 0 {
+			opts.flags = -1
+		} else if opts.flags < 0 {
+			opts.flags = C.int(flags)
+		} else {
+			opts.flags |= C.int(flags)
+		}
+	}}
+}
+
+// HandlerOptRssFlags specifies RSS flags to use by RSS mechanism. By
+// default, the implementation will select its own mechanism to divide
+// incoming packets across rings. This parameter is only meaningful
+// if there are more than 1 rings to be opened.
+func HandlerOptRssFlags(flags int) HandlerOption {
+	return HandlerOption{func(opts *handlerOpts) {
+		opts.rss = &C.struct_snf_rss_params{}
+		C.set_rss_flags(opts.rss, C.int(flags))
+	}}
+}
+
+// HandlerOptRssFunc specifies custom hash function to use by RSS
+// mechanism. By default, the implementation will select its own
+// mechanism to divide incoming packets across rings. This parameter
+// is only meaningful if there are more than 1 rings to be opened.
+//
+// fn should comply with the following C function prototype:
+//   int (*rss_hash_fn)(struct snf_recv_req *r, void *context, uint32_t *hashval);
+// ctx is an opaque context.
+//
+// fn is a hash function provided by user as a pointer to C function.  The
+// callback is provided with a valid snf_recv_req structure which contains a
+// packet as received by Sniffer. It is up to the user to inspect and parse the
+// packet to produce a unique 32-bit hash. The implementation will map the
+// 32-bit into one of the rings allocated in snf_open.  The function must
+// return one of three values:
+//
+// 0: The packet is queued in the ring based on the 32-bit hash value that is
+// provided, which is hashval%num_rings.
+//
+// <0: The packet is dropped and accounted as a drop in the ring corresponding
+// to the 32-bit hash value provided by the user.  fn is the pointer to Cgo
+// function and ctx is the pointer to that function context.
+//
+// Please be aware that applying of custom hash function may introduce some
+// overhead to the hot path.
+func HandlerOptRssFunc(fn, ctx unsafe.Pointer) HandlerOption {
+	return HandlerOption{func(opts *handlerOpts) {
+		opts.rss = &C.struct_snf_rss_params{}
+		C.set_rss_func(opts.rss, fn, ctx)
+	}}
 }
 
 // LinkState gets link status on opened handle.
