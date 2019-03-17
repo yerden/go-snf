@@ -121,6 +121,9 @@ const (
 	RssGre = C.SNF_RSS_GRE
 )
 
+// Open flags for process-sharing, port aggregation and packet
+// duplication.  Used when opening a Handle with HandlerOptFlags
+// option.
 const (
 	// PShared flag states that device can be process-sharable. This
 	// allows multiple independent processes to share rings on the
@@ -571,6 +574,8 @@ func HandlerOptFlags(flags int) HandlerOption {
 // default, the implementation will select its own mechanism to divide
 // incoming packets across rings. This parameter is only meaningful
 // if there are more than 1 rings to be opened.
+//
+// Note that this option unsets HandlerOptRssFunc option.
 func HandlerOptRssFlags(flags int) HandlerOption {
 	return HandlerOption{func(opts *handlerOpts) {
 		opts.rss = &C.struct_snf_rss_params{}
@@ -601,8 +606,10 @@ func HandlerOptRssFlags(flags int) HandlerOption {
 // to the 32-bit hash value provided by the user.  fn is the pointer to Cgo
 // function and ctx is the pointer to that function context.
 //
-// Please be aware that applying of custom hash function may introduce some
-// overhead to the hot path.
+// Please be aware that applying custom hash function may impose some
+// overhead on the hot path.
+//
+// Note that this option unsets HandlerOptRssFlags option.
 func HandlerOptRssFunc(fn, ctx unsafe.Pointer) HandlerOption {
 	return HandlerOption{func(opts *handlerOpts) {
 		opts.rss = &C.struct_snf_rss_params{}
