@@ -34,12 +34,8 @@ import (
 
 func makeProgram(insns []bpf.RawInstruction) (fp C.struct_bpf_program) {
 	cInsns := make([]C.struct_bpf_insn, len(insns))
-	for i := range cInsns {
-		cInsns[i].code = C.u_short(insns[i].Op)
-		cInsns[i].jf = C.u_char(insns[i].Jf)
-		cInsns[i].jt = C.u_char(insns[i].Jt)
-		cInsns[i].k = C.uint(insns[i].K)
-	}
+	C.memcpy(unsafe.Pointer(&cInsns[0]), unsafe.Pointer(&insns[0]),
+		C.ulong(len(insns)*C.sizeof_struct_bpf_insn))
 	fp.bf_len = C.uint(len(insns))
 	fp.bf_insns = &cInsns[0]
 	return fp
