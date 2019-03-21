@@ -69,6 +69,15 @@ import (
 // }
 import "C"
 
+// SNF API version number (16 bits).
+//
+// Least significant byte increases for minor backwards compatible
+// changes in the API. Most significant byte increases for
+// incompatible changes in the API.
+const (
+	Version uint16 = C.SNF_VERSION_API
+)
+
 // Underlying port's state (DOWN or UP)
 const (
 	// Link is down.
