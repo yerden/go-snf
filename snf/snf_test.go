@@ -61,6 +61,33 @@ func TestInit(t *testing.T) {
 	assertFail(err == nil)
 }
 
+func TestGetIfAddrs(t *testing.T) {
+	assertFail := newAssert(t, true)
+	assert := newAssert(t, false)
+
+	teardown, err := setup(t)
+	defer teardown(t)
+	assertFail(err == nil)
+
+	ifa, err := GetIfAddrs()
+	assertFail(err == nil)
+	assertFail(len(ifa) > 0)
+
+	for _, iface := range ifa {
+		iface_got, err := GetIfAddrByName(iface.Name)
+		assertFail(err == nil)
+		assert(iface == *iface_got)
+
+		iface_got, err = GetIfAddrByHW(iface.MACAddr[:])
+		assertFail(err == nil)
+		assert(iface == *iface_got)
+	}
+	_, err = GetIfAddrByName("some_eth0")
+	assert(IsEnodev(err))
+	_, err = GetIfAddrByHW([]byte{0, 1, 2, 3, 4, 5})
+	assert(IsEnodev(err))
+}
+
 func TestInject(t *testing.T) {
 	assertFail := newAssert(t, true)
 	assert := newAssert(t, false)
