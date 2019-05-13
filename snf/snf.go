@@ -1007,26 +1007,44 @@ func (r *Ring) PortInfo() ([]*RingPortInfo, error) {
 // done processing the previous packet.  The same assumption is made
 // when the ring is closed (ring's Close() method).
 func (r *Ring) Recv(timeout time.Duration, req *RecvReq) error {
-	if atomic.LoadInt32(&r.state) != stateOk {
-		return io.EOF
-	}
-	ms := dur2ms(timeout)
-	var rc C.struct_snf_recv_req
-	err := retErr(C.snf_ring_recv(r.ring, C.int(ms), &rc))
-	if err == nil {
-		convert(req, &rc)
-	}
-	return err
+	return retErr(C.snf_ring_recv(r.ring, dur2ms(timeout), (*C.struct_snf_recv_req)(req)))
 }
 
-func convert(req *RecvReq, rc *C.struct_snf_recv_req) {
-	req.Pkt = getData(rc)
-	req.Timestamp = int64(rc.timestamp)
-	req.PortNum = uint32(rc.portnum)
-	req.DataLength = uint32(rc.length_data)
-	req.HWHash = uint32(rc.hw_hash)
+// RecvMany receives new packets from the ring following
+// borrow-many-return-many receive model.
+//
+// timeout semantics is as in Recv() method.
+//
+// reqs is an array of user-allocated RecvReq structs which will be
+// filled with received packets descriptors.
+//
+// If qinfo is not nil, the struct will be filled with queue
+// consumption information.
+//
+// The output of this function is the actual number of descriptors
+// filled in reqs and an error if any.
+func (r *Ring) RecvMany(timeout time.Duration, reqs []RecvReq, qinfo *RingQInfo) (int, error) {
+	qi := (*C.struct_snf_ring_qinfo)(qinfo)
+	var n C.int
+	return int(n), retErr(C.snf_ring_recv_many(r.ring, dur2ms(timeout),
+		(*C.struct_snf_recv_req)(&reqs[0]), C.int(len(reqs)), &n, qi))
 }
 
-func getData(rc *C.struct_snf_recv_req) []byte {
-	return array2Slice(uintptr(rc.pkt_addr), int(rc.length))
+// ReturnMany returns memory of given packets back to the data ring.
+// Please be aware SNF API returns queued data with no regard to
+// supplied packets, i.e. in FIFO way.
+//
+// Error is returned in case snf_ring_return_many() was unsuccessful.
+func (r *Ring) ReturnMany(reqs []RecvReq, qinfo *RingQInfo) error {
+	datalen := C.uint(0)
+	for i := range reqs {
+		datalen += reqs[i].length_data
+	}
+
+	if datalen == 0 {
+		return nil
+	}
+
+	qi := (*C.struct_snf_ring_qinfo)(qinfo)
+	return retErr(C.snf_ring_return_many(r.ring, datalen, qi))
 }
