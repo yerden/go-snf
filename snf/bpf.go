@@ -11,6 +11,7 @@ package snf
 #include <stdlib.h>
 #include <pcap.h>
 #include <string.h>
+#include <snf.h>
 
 int go_bpf_test(uintptr_t pfp, const struct pcap_pkthdr *hdr,
 		const u_char * pkt, int count)
@@ -21,6 +22,24 @@ int go_bpf_test(uintptr_t pfp, const struct pcap_pkthdr *hdr,
 		res = pcap_offline_filter(fp, hdr, pkt);
 
 	return res;
+}
+
+void exec_bpf(int n_insns, struct bpf_insn *insns,
+	int n_reqs, struct snf_recv_req *reqs, int32_t *out) {
+	struct bpf_program fp = {
+		.bf_len = n_insns,
+		.bf_insns = insns,
+	};
+
+	int i;
+	for (i = 0; i < n_reqs; i++) {
+		struct snf_recv_req *req = &reqs[i];
+		struct pcap_pkthdr hdr = {
+			.caplen = req->length,
+			.len = req->length,
+		};
+		out[i] = pcap_offline_filter(&fp, &hdr, req->pkt_addr);
+	}
 }
 */
 import "C"
@@ -43,7 +62,7 @@ func makeProgram(insns []bpf.RawInstruction) (fp C.struct_bpf_program) {
 
 // pcapFilterTest filters given packet through filter "repeat" times.
 func pcapFilterTest(pkt []byte, snaplen int, expr string, repeat int) (int, error) {
-	insns, err := compileBPF(snaplen, expr)
+	insns, err := CompileBPF(snaplen, expr)
 	if err != nil {
 		return 0, err
 	}
@@ -58,40 +77,8 @@ func pcapFilterTest(pkt []byte, snaplen int, expr string, repeat int) (int, erro
 		&hdr, (*C.u_char)(&pkt[0]), C.int(repeat))), nil
 }
 
-// SetBPFInstructions sets Berkeley Packet Filter on a
-// RingReceiver.
-// The BPF is represented as an array of instructions.
-//
-// If len(insns) == 0, unset the filter.
-//
-// See SetBPF on notes and caveats.
-func (rr *RingReceiver) SetBPFInstructions(insns []bpf.RawInstruction) error {
-	rr.reqMany.fp = makeProgram(insns)
-	return nil
-}
-
-// SetBPF sets Berkeley Packet Filter on a RingReceiver.
-//
-// The installed BPF will be matched across every packet
-// received on it with RingReceiver.Next.
-//
-// If the pcap_offline_filter returns zero, RingReceiver.Next
-// will silently skip this packet.
-//
-// SetBPF will silently replace previously set filter.
-// You can call this function at any point in your program
-// but make sure that there is no concurrent packet reading
-// activity on the ring at the moment.
-func (rr *RingReceiver) SetBPF(snaplen int, expr string) error {
-	insns, err := compileBPF(snaplen, expr)
-	if err != nil {
-		return err
-	}
-
-	return rr.SetBPFInstructions(insns)
-}
-
-func compileBPF(snaplen int, expr string) ([]bpf.RawInstruction, error) {
+// CompileBPF prepared BPF machine instructions ready for execution.
+func CompileBPF(snaplen int, expr string) ([]bpf.RawInstruction, error) {
 	var fp C.struct_bpf_program
 
 	p := C.pcap_open_dead(C.DLT_EN10MB, C.int(snaplen))
@@ -112,4 +99,17 @@ func compileBPF(snaplen int, expr string) ([]bpf.RawInstruction, error) {
 	C.memcpy(unsafe.Pointer(&insns[0]), unsafe.Pointer(fp.bf_insns),
 		C.ulong(fp.bf_len*C.sizeof_struct_bpf_insn))
 	return insns, nil
+}
+
+// ExecuteBPF runs BPF instructions on array of RecvReq. The output
+// will be put in res array which should be able to contain at least
+// len(reqs) elements. Otherwise, it will panic.
+func ExecuteBPF(insns []bpf.RawInstruction, reqs []RecvReq, res []int32) {
+	if len(res) < len(reqs) {
+		panic("insufficient room for output")
+	}
+
+	bpfLen, bpfPtr := C.int(len(insns)), (*C.struct_bpf_insn)(unsafe.Pointer(&insns[0]))
+	reqLen, reqPtr := C.int(len(reqs)), (*C.struct_snf_recv_req)(&reqs[0])
+	C.exec_bpf(bpfLen, bpfPtr, reqLen, reqPtr, (*C.int)(&res[0]))
 }
