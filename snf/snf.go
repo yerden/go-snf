@@ -434,16 +434,15 @@ func GetIfAddrByName(name string) (*IfAddrs, error) {
 // obtaining port information.
 func PortMask() (linkup, valid uint32, err error) {
 	var p *C.struct_snf_ifaddrs
-	if err = retErr(C.snf_getifaddrs(&p)); err != nil {
-		return 0, 0, err
-	}
-	defer C.snf_freeifaddrs(p)
-	for ; p != nil; p = p.snf_ifa_next {
-		ifa := cvtIfAddrs(p)
-		bit := uint32(1) << ifa.PortNum
-		valid |= bit
-		if ifa.LinkState == LinkUp {
-			linkup |= bit
+	if err = retErr(C.snf_getifaddrs(&p)); err == nil {
+		defer C.snf_freeifaddrs(p)
+		for ; p != nil; p = p.snf_ifa_next {
+			ifa := cvtIfAddrs(p)
+			bit := uint32(1) << ifa.PortNum
+			valid |= bit
+			if ifa.LinkState == LinkUp {
+				linkup |= bit
+			}
 		}
 	}
 	return
