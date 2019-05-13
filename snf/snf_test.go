@@ -34,7 +34,10 @@ func newAssert(t *testing.T, fail bool) func(bool) {
 }
 
 // mock handler
-func handle(ci gopacket.CaptureInfo, data []byte) {
+func handleReq(*RecvReq) {
+}
+
+func handlePacket(ci gopacket.CaptureInfo, data []byte) {
 }
 
 func setup(t *testing.T) (func(*testing.T), error) {
@@ -393,7 +396,7 @@ func ExampleRingReceiver() {
 
 	// process traffic in bufio.Scanner-like way
 	for recv.LoopNext() {
-		handle(recv.RecvReq().CaptureInfo(), recv.Data())
+		handleReq(recv.RecvReq())
 	}
 
 	// Alternatively, you may utilize gopacket.ZeroCopyPacketDataSource
@@ -408,6 +411,6 @@ func ExampleRingReceiver() {
 		} else if err != nil {
 			panic(err.Error())
 		}
-		handle(ci, data)
+		handlePacket(ci, data)
 	}
 }
