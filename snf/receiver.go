@@ -6,16 +6,11 @@
 
 package snf
 
-/*
-#include <snf.h>
-#include "receiver.h"
-*/
-import "C"
 import (
 	"io"
-	"sync/atomic"
 	"time"
-	"unsafe"
+
+	"golang.org/x/net/bpf"
 )
 
 // RingReceiver wraps SNF's borrow-many-return-many model of packets
@@ -23,24 +18,16 @@ import (
 // This allows us to access low-level SNF API but maintain compatibility
 // with gopacket's layers decoding abilities.
 type RingReceiver struct {
-	// underlying ring
-	ring  C.snf_ring_t
-	state *int32
+	*Ring
 
-	// backing reqs array
-	reqs      []C.struct_snf_recv_req
-	bpfResult []C.int
+	reqs      []RecvReq
+	bpfResult []int32
+	index     int
+	received  int
+	timeout   time.Duration
+	qinfo     RingQInfo
 
-	// current packet index
-	index int
-
-	// packet array
-	reqMany C.struct_recv_req_many
-	// receive timeout
-	timeoutMs C.int
-
-	reqCurrent *RecvReq
-
+	filter []bpf.RawInstruction
 	// last error
 	err error
 }
@@ -56,23 +43,15 @@ type RingReceiver struct {
 // burst==1. In that case, RingReceiver will utilize snf_ring_recv()
 // which works in either cases.
 func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
-	reqs := make([]C.struct_snf_recv_req, burst)
-	bpfResult := make([]C.int, burst)
+	reqs := make([]RecvReq, burst)
+	bpfResult := make([]int32, burst)
 
 	return &RingReceiver{
-		ring:      r.ring,
-		state:     &r.state,
+		Ring:      r,
 		reqs:      reqs,
 		bpfResult: bpfResult,
-		timeoutMs: C.int(dur2ms(timeout)),
+		timeout:   timeout,
 		index:     0,
-		reqMany: C.struct_recv_req_many{
-			reqs:       &reqs[0],
-			bpf_result: &bpfResult[0],
-			nreq_in:    C.int(burst),
-			nreq_out:   0,
-			total_len:  0},
-		reqCurrent: &RecvReq{},
 	}
 }
 
@@ -80,31 +59,73 @@ func (r *Ring) NewReceiver(timeout time.Duration, burst int) *RingReceiver {
 // is a success, otherwise you should halt all actions
 // on the receiver until Err() error is examined and
 // needed actions are performed.
+func (rr *RingReceiver) reload() bool {
+	if !rr.IsStateOk() {
+		rr.err = io.EOF
+		return false
+	}
+	rr.err = rr.ReturnMany(rr.reqs[:rr.received], nil)
+	if rr.err != nil {
+		return false
+	}
+	rr.received, rr.err = rr.RecvMany(rr.timeout, rr.reqs, &rr.qinfo)
+	if len(rr.filter) != 0 {
+		ExecuteBPF(rr.filter, rr.reqs[:rr.received], rr.bpfResult)
+	}
+	return rr.err == nil
+}
+
+// SetBPF sets Berkeley Packet Filter on a RingReceiver.
+//
+// The installed BPF will be matched across every packet received on
+// it with RingReceiver.Next.
+//
+// If the pcap_offline_filter returns zero, RingReceiver.Next will
+// silently skip this packet.
+//
+// SetBPF will silently replace previously set filter. You can call
+// this function at any point in your program but make sure that there
+// is no concurrent packet reading activity on the ring at the moment.
+func (rr *RingReceiver) SetBPF(snaplen int, expr string) error {
+	if insns, err := CompileBPF(snaplen, expr); err == nil {
+		return rr.SetBPFInstructions(insns)
+	} else {
+		return err
+	}
+}
+
+// SetBPFInstructions sets Berkeley Packet Filter on a RingReceiver.
+// The BPF is represented as an array of instructions.
+//
+// If len(insns) == 0, unset the filter.
+//
+// See SetBPF on notes and caveats.
+func (rr *RingReceiver) SetBPFInstructions(insns []bpf.RawInstruction) error {
+	rr.filter = insns
+	return nil
+}
+
+// RawNext gets next packet out of ring. If true, the operation
+// is a success, otherwise you should halt all actions
+// on the receiver until Err() error is examined and
+// needed actions are performed.
 func (rr *RingReceiver) rawNext() bool {
-	rm := &rr.reqMany
 	for {
-		if rr.index++; rr.index >= int(rm.nreq_out) {
+		if rr.index++; rr.index >= rr.received {
 			rr.index = 0
-			if atomic.LoadInt32(rr.state) != stateOk {
-				rr.err = io.EOF
-				return false
-			}
-			// return borrowed data
-			// retrieve new packets from ring
-			rr.err = retErr(C.go_snf_recv_many(rr.ring, rr.timeoutMs,
-				C.uintptr_t(uintptr(unsafe.Pointer(rm)))))
-			if rr.err != nil {
+			if !rr.reload() {
 				return false
 			}
 		}
 
-		// some packets are waiting
-		req := &rr.reqs[rr.index]
-		if rm.fp.bf_len == 0 || rr.bpfResult[rr.index] != 0 {
-			convert(rr.reqCurrent, req)
+		if len(rr.filter) != 0 && rr.bpfResult[rr.index] != 0 {
 			return true
 		}
 	}
+}
+
+func (rr *RingReceiver) req() *RecvReq {
+	return &rr.reqs[rr.index]
 }
 
 // Next gets next packet out of ring. If true, the operation
@@ -127,23 +148,22 @@ func (rr *RingReceiver) BPFResult() int {
 // points to privately held instance of RecvReq so make a copy
 // if you want to retain it.
 func (rr *RingReceiver) RecvReq() *RecvReq {
-	return rr.reqCurrent
+	return rr.req()
 }
 
-// Data gets retrieved packet's data. Please note that the
-// underlying array of returned slice is owned by
-// SNF API. Please make a copy if you want to retain it.
-// The consecutive Next() call may erase this slice
-// without prior notice.
+// Data gets retrieved packet's data. Please note that the underlying
+// array of returned slice is owned by SNF API. Please make a copy if
+// you want to retain it. The consecutive Next() call may erase this
+// slice without prior notice.
 func (rr *RingReceiver) Data() []byte {
-	return rr.RecvReq().Pkt
+	return rr.req().Data()
 }
 
 // Avail shows how many packets are cached, i.e. left to read
 // without calling SNF API to retrieve new packets.
 // Mostly used for testing purposes.
 func (rr *RingReceiver) Avail() int {
-	return int(rr.reqMany.nreq_out) - rr.index
+	return rr.received - rr.index
 }
 
 // Err returns error which was encountered during the last
@@ -155,11 +175,7 @@ func (rr *RingReceiver) Err() error {
 
 // RingQInfo provides access the most recent Ring queue info.
 func (rr *RingReceiver) RingQInfo() (q RingQInfo) {
-	rm := &rr.reqMany
-	q.Avail = uintptr(rm.qinfo.q_avail)
-	q.Borrowed = uintptr(rm.qinfo.q_borrowed)
-	q.Free = uintptr(rm.qinfo.q_free)
-	return
+	return rr.qinfo
 }
 
 // Free returns all packets that were retrieved but not
@@ -173,11 +189,7 @@ func (rr *RingReceiver) RingQInfo() (q RingQInfo) {
 // function is encouraged anyway as a matter of good
 // code style.
 func (rr *RingReceiver) Free() error {
-	rm := &rr.reqMany
-	if atomic.LoadInt32(rr.state) != stateClosed {
-		return retErr(C.snf_ring_return_many(rr.ring, rm.total_len, nil))
-	}
-	return nil
+	return rr.ReturnMany(rr.reqs[:rr.received], &rr.qinfo)
 }
 
 // LoopNext is similar to Next() method but this one loops if EAGAIN
