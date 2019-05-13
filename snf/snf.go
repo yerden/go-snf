@@ -826,12 +826,14 @@ func (h *Handle) houseKeep() {
 		// as soon as we're out of here
 		defer wg.Done()
 		for sig := range h.sigCh {
+			h.mtx.Lock()
 			// signal arrived
 			fmt.Printf("SNF handle caught %v\n", sig)
 			for _, state := range h.rings {
 				atomic.StoreInt32(state, stateNotOk)
 			}
 			atomic.StoreInt32(&h.state, stateNotOk)
+			h.mtx.Unlock()
 		}
 		// channel closes when Close() is called
 		atomic.StoreInt32(&h.state, stateClosed)
