@@ -1048,3 +1048,15 @@ func (r *Ring) ReturnMany(reqs []RecvReq, qinfo *RingQInfo) error {
 	qi := (*C.struct_snf_ring_qinfo)(qinfo)
 	return retErr(C.snf_ring_return_many(r.ring, datalen, qi))
 }
+
+// IsStateOk returns false if a Handle for the ring was notified with
+// a signal, otherwise true.
+func (r *Ring) IsStateOk() bool {
+	return atomic.LoadInt32(&r.state) == stateOk
+}
+
+// IsStateOk returns false if a Handle was notified with a signal,
+// otherwise true.
+func (h *Handle) IsStateOk() bool {
+	return atomic.LoadInt32(&h.state) == stateOk
+}
