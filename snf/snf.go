@@ -343,7 +343,7 @@ type RingStats struct {
 
 // Receive timeout to control how the function blocks for the
 // next packet.
-func dur2ms(d time.Duration) int {
+func dur2ms(d time.Duration) C.int {
 	// If the value is less than 0, the function can block indefinitely.
 	if d < 0 {
 		return -1
@@ -353,7 +353,7 @@ func dur2ms(d time.Duration) int {
 	// time, the function only blocks if there are no outstanding
 	// packets.
 	if ms := int(d.Nanoseconds() / 1000000); ms > 0 {
-		return ms
+		return C.int(ms)
 	}
 
 	// "If the value is 0, the function is guaranteed to never
