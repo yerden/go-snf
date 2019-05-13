@@ -41,10 +41,10 @@ package snf
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/signal"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -213,27 +213,58 @@ type RingPortInfo struct {
 }
 
 // RingQInfo is a queue consumption information.
-type RingQInfo struct {
-	// Amount of data available not yet received (approximate)
-	Avail uintptr
-	// Amount of data currently borrowed (exact)
-	Borrowed uintptr
-	// Amount of free space still available (approximate)
-	Free uintptr
+type RingQInfo C.struct_snf_ring_qinfo
+
+// Avail returns amount of data available not yet received
+// (approximate).
+func (qinfo *RingQInfo) Avail() uintptr {
+	return uintptr(qinfo.q_avail)
+}
+
+// Borrowed returns amount of data currently borrowed (exact).
+func (qinfo *RingQInfo) Borrowed() uintptr {
+	return uintptr(qinfo.q_borrowed)
+}
+
+// Free returns amount of free space still available (approximate).
+func (qinfo *RingQInfo) Free() uintptr {
+	return uintptr(qinfo.q_free)
 }
 
 // RecvReq is a descriptor of a packet received on a data ring.
-type RecvReq struct {
-	// Pointer to packet directly in data ring
-	Pkt []byte
-	// 64-bit timestamp in nanoseconds
-	Timestamp int64
-	// Which port number received the packet
-	PortNum uint32
-	// Length of packet, with alignment in receive queue
-	DataLength uint32
-	// Hash calculated by the NIC.
-	HWHash uint32
+type RecvReq C.struct_snf_recv_req
+
+// Data returns data payload of the packet as a pointer directly in
+// the given data ring.
+//
+// User may not retain the slice returned by Data since the underlying
+// memory chunk may be reused.
+func (req *RecvReq) Data() (data []byte) {
+	sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+	sh.Data = uintptr(req.pkt_addr)
+	sh.Len = int(req.length)
+	sh.Cap = int(req.length_data)
+	return
+}
+
+// TimestampNs() returns 64-bit timestamp in nanoseconds.
+func (req *RecvReq) TimestampNs() int64 {
+	return int64(req.timestamp)
+}
+
+// Timestamp() returns timestamp of a packet.
+func (req *RecvReq) Timestamp() time.Time {
+	return time.Unix(0, req.TimestampNs())
+}
+
+// PortNum returns packet's origin port number.
+func (req *RecvReq) PortNum() int {
+	return int(req.portnum)
+}
+
+// HwHash() returns hash calculated by the NIC.
+func (req *RecvReq) HwHash() uint32 {
+	return uint32(req.hw_hash)
 }
 
 // Handle encapsulates a device handle. It also contains
