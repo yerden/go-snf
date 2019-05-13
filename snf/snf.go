@@ -686,9 +686,6 @@ func HandlerOptRssFunc(fn, ctx unsafe.Pointer) HandlerOption {
 // that reads state kept in kernel host memory (i.e. no PCI bus
 // reads).
 func (h *Handle) LinkState() (int, error) {
-	if atomic.LoadInt32(&h.state) != stateOk {
-		return 0, io.EOF
-	}
 	var res uint32
 	err := retErr(C.snf_get_link_state(h.dev, &res))
 	return int(res), err
@@ -702,9 +699,6 @@ func (h *Handle) LinkState() (int, error) {
 // that reads state kept in kernel host memory (i.e. no PCI bus
 // reads).
 func (h *Handle) LinkSpeed() (uint64, error) {
-	if atomic.LoadInt32(&h.state) != stateOk {
-		return 0, io.EOF
-	}
 	var res C.ulong
 	err := retErr(C.snf_get_link_speed(h.dev, &res))
 	return uint64(res), err
@@ -717,9 +711,6 @@ func (h *Handle) LinkSpeed() (uint64, error) {
 // methods.  This call must be called before any packet can be
 // received.
 func (h *Handle) Start() error {
-	if atomic.LoadInt32(&h.state) != stateOk {
-		return io.EOF
-	}
 	return retErr(C.snf_start(h.dev))
 }
 
@@ -732,9 +723,6 @@ func (h *Handle) Start() error {
 // or until the port is closed.  The NIC only resumes delivering
 // packets when the port is closed, not when traffic is stopped.
 func (h *Handle) Stop() error {
-	if atomic.LoadInt32(&h.state) != stateOk {
-		return io.EOF
-	}
 	return retErr(C.snf_stop(h.dev))
 }
 
@@ -809,9 +797,6 @@ func (h *Handle) OpenRing() (ring *Ring, err error) {
 // If successful, a call to Handle's Start() is required to the
 // Sniffer-mode NIC to deliver packets to the host.
 func (h *Handle) OpenRingID(id int) (ring *Ring, err error) {
-	if atomic.LoadInt32(&h.state) != stateOk {
-		return nil, io.EOF
-	}
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
 	var r C.snf_ring_t
@@ -909,9 +894,6 @@ func (r *Ring) Close() error {
 // call that reads state kept in kernel host memory (i.e. no PCI bus
 // reads).
 func (h *Handle) TimeSourceState() (int, error) {
-	if atomic.LoadInt32(&h.state) != stateOk {
-		return 0, io.EOF
-	}
 	var res uint32
 	err := retErr(C.snf_get_timesource_state(h.dev, &res))
 	return int(res), err
@@ -955,9 +937,6 @@ func SetAppID(id int32) error {
 // application is running may cause some of the counters to be
 // incorrect.
 func (r *Ring) Stats() (*RingStats, error) {
-	if atomic.LoadInt32(&r.state) != stateOk {
-		return nil, io.EOF
-	}
 	stats := &RingStats{}
 	return stats, retErr(C.snf_ring_getstats(r.ring,
 		(*C.struct_snf_ring_stats)(unsafe.Pointer(stats))))
@@ -967,9 +946,6 @@ func (r *Ring) Stats() (*RingStats, error) {
 // For aggregated rings, returns information for each of the physical
 // rings.
 func (r *Ring) PortInfo() ([]*RingPortInfo, error) {
-	if atomic.LoadInt32(&r.state) != stateOk {
-		return nil, io.EOF
-	}
 	var count C.int
 	if err := retErr(C.snf_ring_portinfo_count(r.ring, &count)); err != nil {
 		return nil, err
