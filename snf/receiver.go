@@ -118,7 +118,7 @@ func (rr *RingReceiver) rawNext() bool {
 			}
 		}
 
-		if len(rr.filter) != 0 && rr.bpfResult[rr.index] != 0 {
+		if len(rr.filter) == 0 || rr.bpfResult[rr.index] != 0 {
 			return true
 		}
 	}
