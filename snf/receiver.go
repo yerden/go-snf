@@ -69,7 +69,7 @@ func (rr *RingReceiver) reload() bool {
 		return false
 	}
 	rr.received, rr.err = rr.RecvMany(rr.timeout, rr.reqs, &rr.qinfo)
-	if len(rr.filter) != 0 {
+	if rr.err == nil && len(rr.filter) != 0 {
 		ExecuteBPF(rr.filter, rr.reqs[:rr.received], rr.bpfResult)
 	}
 	return rr.err == nil
