@@ -26,8 +26,70 @@ var (
 	badBPF  = "udp and port 80"
 )
 
+// badBPF  = "udp and port 80"
+func nativeBadFilter(p []byte, snaplen int) int {
+	if len(p) < 14 {
+		return 0
+	}
+
+	etherhdr, ip := p[:14], p[14:]
+	if etherhdr[12] != 0x8 || etherhdr[13] != 0x00 {
+		return 0
+	}
+
+	iplen := int((ip[0] & 0xf) * 4)
+	if iplen < 20 || len(ip) < iplen || ip[9] != 17 {
+		return 0
+	}
+
+	udp := ip[iplen:]
+	if len(udp) < 4 {
+		return 0
+	}
+
+	if udp[0] == 0 && udp[1] == 80 {
+		return snaplen
+	}
+
+	if udp[2] == 0 && udp[3] == 80 {
+		return snaplen
+	}
+	return 0
+}
+
+// goodBPF = "ip and tcp and port 80"
+func nativeGoodFilter(p []byte, snaplen int) int {
+	if len(p) < 14 {
+		return 0
+	}
+
+	etherhdr, ip := p[:14], p[14:]
+	if etherhdr[12] != 0x8 || etherhdr[13] != 0x00 {
+		return 0
+	}
+
+	iplen := int((ip[0] & 0xf) * 4)
+	if iplen < 20 || len(ip) < iplen || ip[9] != 6 {
+		return 0
+	}
+
+	tcp := ip[iplen:]
+	if len(tcp) < 4 {
+		return 0
+	}
+
+	if tcp[0] == 0 && tcp[1] == 80 {
+		return snaplen
+	}
+
+	if tcp[2] == 0 && tcp[3] == 80 {
+		return snaplen
+	}
+	return 0
+}
+
 func BenchmarkBulkPcapBPFGood(b *testing.B) {
-	res, err := pcapFilterTest(packet[:], snaplen, goodBPF, b.N)
+	res, err := pcapFilterTest(packet[:], snaplen, goodBPF, b.N, true)
 	if err != nil {
 		b.Fatal("unable to make a filter")
 	}
@@ -37,8 +99,50 @@ func BenchmarkBulkPcapBPFGood(b *testing.B) {
 	}
 }
 
+func BenchmarkNativeFilterGood(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		res := nativeGoodFilter(packet[:], snaplen)
+		if res != snaplen {
+			fmt.Println("res=", res)
+			b.Fatal("filter supposed to be good")
+		}
+	}
+}
+
+func BenchmarkNativeFilterBad(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		res := nativeBadFilter(packet[:], snaplen)
+		if res == snaplen {
+			fmt.Println("res=", res)
+			b.Fatal("filter supposed to be bad")
+		}
+	}
+}
+
 func BenchmarkBulkPcapBPFBad(b *testing.B) {
-	res, err := pcapFilterTest(packet[:], snaplen, badBPF, b.N)
+	res, err := pcapFilterTest(packet[:], snaplen, badBPF, b.N, true)
+	if err != nil {
+		b.Fatal("unable to make a filter")
+	}
+	if res == snaplen {
+		fmt.Println("res=", res)
+		b.Fatal("filter supposed to be bad")
+	}
+}
+
+func BenchmarkSinglePcapBPFGood(b *testing.B) {
+	res, err := pcapFilterTest(packet[:], snaplen, goodBPF, b.N, false)
+	if err != nil {
+		b.Fatal("unable to make a filter")
+	}
+	if res != snaplen {
+		fmt.Println("res=", res)
+		b.Fatal("filter supposed to be good")
+	}
+}
+
+func BenchmarkSinglePcapBPFBad(b *testing.B) {
+	res, err := pcapFilterTest(packet[:], snaplen, badBPF, b.N, false)
 	if err != nil {
 		b.Fatal("unable to make a filter")
 	}

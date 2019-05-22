@@ -13,13 +13,18 @@ package snf
 #include <string.h>
 #include <snf.h>
 
-int go_bpf_test(uintptr_t pfp, const struct pcap_pkthdr *hdr,
-		const u_char * pkt, int count)
+int go_bpf_test(int n_insns, struct bpf_insn *insns,
+		const struct pcap_pkthdr *hdr,
+		const u_char * pkt, int repeat)
 {
+	struct bpf_program fp = {
+		.bf_len = n_insns,
+		.bf_insns = insns,
+	};
+
 	int n, res;
-	struct bpf_program *fp = (typeof(fp))pfp;
-	for (n = 0; n < count; n++)
-		res = pcap_offline_filter(fp, hdr, pkt);
+	for (n = 0; n < repeat; n++)
+		res = pcap_offline_filter(&fp, hdr, pkt);
 
 	return res;
 }
@@ -51,30 +56,31 @@ import (
 	"golang.org/x/net/bpf"
 )
 
-func makeProgram(insns []bpf.RawInstruction) (fp C.struct_bpf_program) {
-	cInsns := make([]C.struct_bpf_insn, len(insns))
-	C.memcpy(unsafe.Pointer(&cInsns[0]), unsafe.Pointer(&insns[0]),
-		C.ulong(len(insns)*C.sizeof_struct_bpf_insn))
-	fp.bf_len = C.uint(len(insns))
-	fp.bf_insns = &cInsns[0]
-	return fp
-}
-
-// pcapFilterTest filters given packet through filter "repeat" times.
-func pcapFilterTest(pkt []byte, snaplen int, expr string, repeat int) (int, error) {
+// pcapFilterTestBulk filters given packet through filter "repeat" times.
+// if bulk set to true, perform loop in cgo rather than in go
+func pcapFilterTest(pkt []byte, snaplen int, expr string, repeat int, bulk bool) (int, error) {
 	insns, err := CompileBPF(snaplen, expr)
 	if err != nil {
 		return 0, err
 	}
 
-	fp := makeProgram(insns)
-
 	var hdr C.struct_pcap_pkthdr
 	hdr.caplen = C.uint(len(pkt))
 	hdr.len = hdr.caplen
 
-	return int(C.go_bpf_test(C.uintptr_t(uintptr(unsafe.Pointer(&fp))),
-		&hdr, (*C.u_char)(&pkt[0]), C.int(repeat))), nil
+	var res int
+
+	count := 1
+	if !bulk {
+		repeat, count = 1, repeat
+	}
+
+	for i := 0; i < count; i++ {
+		res = int(C.go_bpf_test(C.int(len(insns)),
+			(*C.struct_bpf_insn)(unsafe.Pointer(&insns[0])),
+			&hdr, (*C.u_char)(&pkt[0]), C.int(repeat)))
+	}
+	return res, nil
 }
 
 // CompileBPF prepared BPF machine instructions ready for execution.
