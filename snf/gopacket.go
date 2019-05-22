@@ -10,9 +10,9 @@ import (
 	"github.com/google/gopacket"
 )
 
-func getCaptureInfo(rc *RecvReq) gopacket.CaptureInfo {
-	data := rc.Data()
-	return gopacket.CaptureInfo{
+func reqDataTs(rc *RecvReq) (data []byte, ci gopacket.CaptureInfo) {
+	data = rc.Data()
+	return data, gopacket.CaptureInfo{
 		CaptureLength:  len(data),
 		InterfaceIndex: rc.PortNum(),
 		Length:         len(data),
@@ -23,7 +23,8 @@ func getCaptureInfo(rc *RecvReq) gopacket.CaptureInfo {
 // CaptureInfo returns gopacket.CaptureInfo metadata for retrieved
 // packet.
 func (req *RecvReq) CaptureInfo() (ci gopacket.CaptureInfo) {
-	return getCaptureInfo(req)
+	_, ci = reqDataTs(req)
+	return
 }
 
 var _ gopacket.ZeroCopyPacketDataSource = (*RingReceiver)(nil)
@@ -36,9 +37,7 @@ func (rr *RingReceiver) ZeroCopyReadPacketData() (data []byte, ci gopacket.Captu
 	if !rr.LoopNext() {
 		err = rr.Err()
 	} else {
-		rc := rr.req()
-		data = rc.Data()
-		ci = getCaptureInfo(rc)
+		data, ci = reqDataTs(rr.req())
 	}
 
 	return
@@ -48,13 +47,8 @@ func (rr *RingReceiver) ZeroCopyReadPacketData() (data []byte, ci gopacket.Captu
 // packet data, gopacket.CaptureInfo metadata and possibly error.
 // This satisfies gopacket.PacketDataSource interface.
 func (rr *RingReceiver) ReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
-	if !rr.LoopNext() {
-		err = rr.Err()
-	} else {
-		rc := rr.req()
-		data = append(data, rc.Data()...)
-		ci = getCaptureInfo(rc)
+	if data, ci, err = rr.ZeroCopyReadPacketData(); err == nil {
+		data = append(make([]byte, 0, len(data)), data...)
 	}
-
 	return
 }
