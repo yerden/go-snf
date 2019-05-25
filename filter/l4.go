@@ -2,6 +2,7 @@ package bpf
 
 import (
 	"encoding/binary"
+	// "log"
 )
 
 type TCP struct {
@@ -26,8 +27,8 @@ const (
 )
 
 const (
-	EtherTypeVlan = 0x0800
-	EtherTypeIPv4 = 0x8100
+	EtherTypeIPv4 = 0x0800
+	EtherTypeVlan = 0x8100
 	EtherTypeIPv6 = 0x86dd
 )
 
@@ -134,38 +135,96 @@ func TCPPortFilter(port uint16) FilterFunc {
 		eth, p := p[:offset], p[offset:]
 		etherType := EthernetEtherType(eth)
 
-	ETHTYPE:
-		switch etherType {
-		case EtherTypeIPv4:
-			break
-		case EtherTypeIPv6:
-			// TODO:
-			return 0
-		case EtherTypeVlan:
+		// scroll all vlan tag
+		for etherType == EtherTypeVlan {
 			if offset, ok = PeelVlan(p); !ok {
 				return 0
 			}
 			eth, p = p[:offset], p[offset:]
 			etherType = VlanEtherType(eth)
-			goto ETHTYPE
 		}
 
-		if offset, ok = PeelIPv4(p); !ok {
+		// peel IP header
+		switch etherType {
+		case EtherTypeIPv6:
+			// TODO:
+			return 0
+		case EtherTypeIPv4:
+			if offset, ok = PeelIPv4(p); !ok {
+				return 0
+			}
+
+			var ip []byte
+			ip, p = p[:offset], p[offset:]
+			if IPv4Proto(ip) != 6 { // TCP
+				return 0
+			}
+
+			if offset, ok = PeelTCP(p); !ok {
+				return 0
+			}
+		default:
 			return 0
 		}
 
-		ip, p := p[:offset], p[offset:]
-		if IPv4Proto(ip) != 6 { // TCP
-			return 0
-		}
-
-		if offset, ok = PeelTCP(p); !ok {
-			return 0
-		}
-
+		// process tcp
 		tcp, p := p[:offset], p[offset:]
 
 		if TCPSrcPort(tcp) != port && TCPDstPort(tcp) != port {
+			return 0
+		}
+
+		return 1
+	}
+}
+
+func UDPPortFilter(port uint16) FilterFunc {
+	return func(p []byte) int {
+		offset, ok := 0, false
+
+		if offset, ok = PeelEthernet(p); !ok {
+			return 0
+		}
+
+		eth, p := p[:offset], p[offset:]
+		etherType := EthernetEtherType(eth)
+
+		// scroll all vlan tag
+		for etherType == EtherTypeVlan {
+			if offset, ok = PeelVlan(p); !ok {
+				return 0
+			}
+			eth, p = p[:offset], p[offset:]
+			etherType = VlanEtherType(eth)
+		}
+
+		// peel IP header
+		switch etherType {
+		case EtherTypeIPv6:
+			// TODO:
+			return 0
+		case EtherTypeIPv4:
+			if offset, ok = PeelIPv4(p); !ok {
+				return 0
+			}
+
+			var ip []byte
+			ip, p = p[:offset], p[offset:]
+			if IPv4Proto(ip) != 17 { // TCP
+				return 0
+			}
+
+			if offset, ok = PeelUDP(p); !ok {
+				return 0
+			}
+		default:
+			return 0
+		}
+
+		// process tcp
+		udp, p := p[:offset], p[offset:]
+
+		if UDPSrcPort(udp) != port && UDPDstPort(udp) != port {
 			return 0
 		}
 
