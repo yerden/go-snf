@@ -1,7 +1,11 @@
 package bpf
 
 import (
+	// "fmt"
 	"testing"
+
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 )
 
 var TcpPacket = []byte{
@@ -88,5 +92,51 @@ func BenchmarkUDPFilter(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		_ = f.Execute(UdpPacket)
+	}
+}
+
+func BenchmarkReference(b *testing.B) {
+	var n int
+
+	for i := 0; i < b.N; i++ {
+		n += i
+	}
+
+	_ = n
+}
+
+func BenchmarkUDPGopacket(b *testing.B) {
+	var eth layers.Ethernet
+	var ip4 layers.IPv4
+	var udp layers.UDP
+	// var payload gopacket.Payload
+	var dns layers.DNS
+
+	decoded := make([]gopacket.LayerType, 0, 20)
+	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &eth, &ip4, &udp, &dns)
+
+	for i := 0; i < b.N; i++ {
+		err := parser.DecodeLayers(UdpPacket, &decoded)
+		if len(decoded) != 4 || err != nil {
+			b.Error(err)
+			b.FailNow()
+		}
+	}
+}
+
+func BenchmarkTCPGopacket(b *testing.B) {
+	var eth layers.Ethernet
+	var ip4 layers.IPv4
+	var tcp layers.TCP
+
+	decoded := make([]gopacket.LayerType, 0, 20)
+	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &eth, &ip4, &tcp)
+
+	for i := 0; i < b.N; i++ {
+		err := parser.DecodeLayers(TcpPacket, &decoded)
+		if len(decoded) != 3 || err != nil {
+			b.Error("Something's not right")
+			b.FailNow()
+		}
 	}
 }
