@@ -108,6 +108,18 @@ func TCPDstPort(p []byte) uint16 {
 	return binary.BigEndian.Uint16(p[2:4])
 }
 
+func TCPSeq(p []byte) uint32 {
+	return binary.BigEndian.Uint32(p[4:8])
+}
+
+func TCPAck(p []byte) uint32 {
+	return binary.BigEndian.Uint32(p[8:12])
+}
+
+func TCPFlags(p []byte) uint16 {
+	return binary.BigEndian.Uint16(p[12:14]) & 0x1ff
+}
+
 func PeelUDP(p []byte) (offset int, ok bool) {
 	if len(p) < UDPHdrLen {
 		return
