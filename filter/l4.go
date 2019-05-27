@@ -137,7 +137,7 @@ func UDPDstPort(p []byte) uint16 {
 }
 
 func TCPPortFilter(port uint16) FilterFunc {
-	return func(p []byte) int {
+	return func(p []byte) int32 {
 		offset, ok := 0, false
 
 		if offset, ok = PeelEthernet(p); !ok {
@@ -191,7 +191,7 @@ func TCPPortFilter(port uint16) FilterFunc {
 }
 
 func UDPPortFilter(port uint16) FilterFunc {
-	return func(p []byte) int {
+	return func(p []byte) int32 {
 		offset, ok := 0, false
 
 		if offset, ok = PeelEthernet(p); !ok {

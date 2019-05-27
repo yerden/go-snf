@@ -63,27 +63,27 @@ func TestUDPFilter(t *testing.T) {
 	assert := newAssert(t, false)
 
 	f := UDPPortFilter(0x35)
-	assert(f.Execute(UdpPacket) > 0)
+	assert(f.Filter(UdpPacket) > 0)
 
 	g := UDPPortFilter(0x20)
-	assert(g.Execute(UdpPacket) == 0)
+	assert(g.Filter(UdpPacket) == 0)
 }
 
 func TestTCPFilter(t *testing.T) {
 	assert := newAssert(t, false)
 
 	f := TCPPortFilter(0x50)
-	assert(f.Execute(TcpPacket) > 0)
+	assert(f.Filter(TcpPacket) > 0)
 
 	g := TCPPortFilter(0x20)
-	assert(g.Execute(TcpPacket) == 0)
+	assert(g.Filter(TcpPacket) == 0)
 }
 
 func BenchmarkTCPFilter(b *testing.B) {
 	f := TCPPortFilter(0x50)
 
 	for i := 0; i < b.N; i++ {
-		_ = f.Execute(TcpPacket)
+		_ = f.Filter(TcpPacket)
 	}
 }
 
@@ -91,7 +91,7 @@ func BenchmarkUDPFilter(b *testing.B) {
 	f := UDPPortFilter(0x50)
 
 	for i := 0; i < b.N; i++ {
-		_ = f.Execute(UdpPacket)
+		_ = f.Filter(UdpPacket)
 	}
 }
 
