@@ -1,4 +1,4 @@
-package bpf
+package filter
 
 // Filter interface is the implementation of packet filtering.
 type Filter interface {

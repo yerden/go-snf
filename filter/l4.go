@@ -1,4 +1,4 @@
-package bpf
+package filter
 
 import (
 	"encoding/binary"
