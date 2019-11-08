@@ -69,20 +69,42 @@ void set_rss_func(struct snf_rss_params *rss, void *fn, void *ctx)
   rss->params.rss_function.rss_context = ctx;
 }
 
-struct recv_many_out {
-	int nreq_out;
+struct compound_int {
+	int data[3];
 	int rc;
 };
 
-struct recv_many_out recv_many(
+struct compound_int recv_many(
 	snf_ring_t ring,
 	int timeout_ms,
 	struct snf_recv_req *req_vector,
 	int nreq_in,
 	struct snf_ring_qinfo *qinfo)
 {
-	struct recv_many_out out;
-	out.rc = snf_ring_recv_many(ring, timeout_ms, req_vector, nreq_in, &out.nreq_out, qinfo);
+	struct compound_int out;
+	out.rc = snf_ring_recv_many(ring, timeout_ms, req_vector, nreq_in,
+		(int *)&out, qinfo);
+	return out;
+}
+
+struct compound_int get_link_state(snf_handle_t h)
+{
+	struct compound_int out;
+	out.rc = snf_get_link_state(h, (enum snf_link_state *)&out);
+	return out;
+}
+
+struct compound_int get_link_speed(snf_handle_t h)
+{
+	struct compound_int out;
+	out.rc = snf_get_link_speed(h, (uint64_t *)&out);
+	return out;
+}
+
+struct compound_int get_timesource_state(snf_handle_t h)
+{
+	struct compound_int out;
+	out.rc = snf_get_timesource_state(h, (enum snf_timesource_state *)&out);
 	return out;
 }
 */
@@ -705,9 +727,8 @@ func HandlerOptRssFunc(fn, ctx unsafe.Pointer) HandlerOption {
 // that reads state kept in kernel host memory (i.e. no PCI bus
 // reads).
 func (h *Handle) LinkState() (int, error) {
-	var res uint32
-	err := retErr(C.snf_get_link_state(h.dev, &res))
-	return int(res), err
+	out := C.get_link_state(h.dev)
+	return int(*(*C.int)(unsafe.Pointer(&out))), retErr(out.rc)
 }
 
 // LinkSpeed gets link speed on opened handle.
@@ -718,9 +739,8 @@ func (h *Handle) LinkState() (int, error) {
 // that reads state kept in kernel host memory (i.e. no PCI bus
 // reads).
 func (h *Handle) LinkSpeed() (uint64, error) {
-	var res C.ulong
-	err := retErr(C.snf_get_link_speed(h.dev, &res))
-	return uint64(res), err
+	out := C.get_link_speed(h.dev)
+	return uint64(*(*C.ulong)(unsafe.Pointer(&out))), retErr(out.rc)
 }
 
 // Start packet capture on a port.  Packet capture is only started if
@@ -915,9 +935,8 @@ func (r *Ring) Close() error {
 // call that reads state kept in kernel host memory (i.e. no PCI bus
 // reads).
 func (h *Handle) TimeSourceState() (int, error) {
-	var res uint32
-	err := retErr(C.snf_get_timesource_state(h.dev, &res))
-	return int(res), err
+	out := C.get_timesource_state(h.dev)
+	return int(*(*C.int)(unsafe.Pointer(&out))), retErr(out.rc)
 }
 
 // SetAppID sets the application ID.
@@ -1046,7 +1065,7 @@ func (r *Ring) RecvMany(timeout time.Duration, reqs []RecvReq, qinfo *RingQInfo)
 	qi := (*C.struct_snf_ring_qinfo)(qinfo)
 	out := C.recv_many(r.ring, dur2ms(timeout), (*C.struct_snf_recv_req)(&reqs[0]),
 		C.int(len(reqs)), qi)
-	return int(out.nreq_out), retErr(out.rc)
+	return int(*(*C.int)(unsafe.Pointer(&out))), retErr(out.rc)
 }
 
 // ReturnMany returns memory of given packets back to the data ring.
