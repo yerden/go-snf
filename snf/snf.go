@@ -52,21 +52,40 @@ import (
 	"unsafe"
 )
 
-// #cgo CFLAGS: -I/opt/snf/include
-// #cgo LDFLAGS: -L/opt/snf/lib -lsnf -lpcap
-// #include <snf.h>
-//
-// void set_rss_flags(struct snf_rss_params *rss, int flags) {
-//   rss->mode = SNF_RSS_FLAGS;
-//   rss->params.rss_flags = flags;
-// }
-//
-// void set_rss_func(struct snf_rss_params *rss, void *fn, void *ctx)
-// {
-//   rss->mode = SNF_RSS_FUNCTION;
-//   rss->params.rss_function.rss_hash_fn = fn;
-//   rss->params.rss_function.rss_context = ctx;
-// }
+/*
+#cgo CFLAGS: -I/opt/snf/include
+#cgo LDFLAGS: -L/opt/snf/lib -lsnf -lpcap
+#include <snf.h>
+
+void set_rss_flags(struct snf_rss_params *rss, int flags) {
+  rss->mode = SNF_RSS_FLAGS;
+  rss->params.rss_flags = flags;
+}
+
+void set_rss_func(struct snf_rss_params *rss, void *fn, void *ctx)
+{
+  rss->mode = SNF_RSS_FUNCTION;
+  rss->params.rss_function.rss_hash_fn = fn;
+  rss->params.rss_function.rss_context = ctx;
+}
+
+struct recv_many_out {
+	int nreq_out;
+	int rc;
+};
+
+struct recv_many_out recv_many(
+	snf_ring_t ring,
+	int timeout_ms,
+	struct snf_recv_req *req_vector,
+	int nreq_in,
+	struct snf_ring_qinfo *qinfo)
+{
+	struct recv_many_out out;
+	out.rc = snf_ring_recv_many(ring, timeout_ms, req_vector, nreq_in, &out.nreq_out, qinfo);
+	return out;
+}
+*/
 import "C"
 
 // SNF API version number (16 bits).
@@ -1025,9 +1044,9 @@ func (r *Ring) Recv(timeout time.Duration, req *RecvReq) error {
 // filled in reqs and an error if any.
 func (r *Ring) RecvMany(timeout time.Duration, reqs []RecvReq, qinfo *RingQInfo) (int, error) {
 	qi := (*C.struct_snf_ring_qinfo)(qinfo)
-	var n C.int
-	return int(n), retErr(C.snf_ring_recv_many(r.ring, dur2ms(timeout),
-		(*C.struct_snf_recv_req)(&reqs[0]), C.int(len(reqs)), &n, qi))
+	out := C.recv_many(r.ring, dur2ms(timeout), (*C.struct_snf_recv_req)(&reqs[0]),
+		C.int(len(reqs)), qi)
+	return int(out.nreq_out), retErr(out.rc)
 }
 
 // ReturnMany returns memory of given packets back to the data ring.
