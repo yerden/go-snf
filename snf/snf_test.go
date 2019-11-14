@@ -4,9 +4,10 @@
 // can be found in the LICENSE file in the root of the source
 // tree.
 
-package snf
+package snf_test
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -17,16 +18,15 @@ import (
 	"testing"
 	"time"
 
-	//"github.com/davecgh/go-spew/spew"
 	"github.com/google/gopacket"
+	"github.com/yerden/go-snf/snf"
 )
 
-func newAssert(t *testing.T, fail bool) func(bool) {
-	return func(expected bool) {
+func newAssert(t testing.TB, fail bool) func(bool, ...interface{}) {
+	return func(expected bool, v ...interface{}) {
 		if !expected {
 			t.Helper()
-			t.Error("Something's not right")
-			if fail {
+			if t.Error(v...); fail {
 				t.FailNow()
 			}
 		}
@@ -34,7 +34,7 @@ func newAssert(t *testing.T, fail bool) func(bool) {
 }
 
 // mock handler
-func handleReq(*RecvReq) {
+func handleReq(*snf.RecvReq) {
 }
 
 func handlePacket(ci gopacket.CaptureInfo, data []byte) {
@@ -52,7 +52,7 @@ func setup(t *testing.T) (func(*testing.T), error) {
 	err = os.Setenv("SNF_NUM_RINGS", "2")
 	assert(err == nil)
 
-	return func(t *testing.T) {}, Init()
+	return func(t *testing.T) {}, snf.Init()
 }
 
 func TestInit(t *testing.T) {
@@ -72,75 +72,23 @@ func TestGetIfAddrs(t *testing.T) {
 	defer teardown(t)
 	assertFail(err == nil)
 
-	ifa, err := GetIfAddrs()
+	ifa, err := snf.GetIfAddrs()
 	assertFail(err == nil)
 	assertFail(len(ifa) > 0)
 
 	for _, iface := range ifa {
-		iface_got, err := GetIfAddrByName(iface.Name)
+		iface_got, err := snf.GetIfAddrByName(iface.Name())
 		assertFail(err == nil)
-		assert(iface == *iface_got)
+		assert(iface.Name() == iface_got.Name())
 
-		iface_got, err = GetIfAddrByHW(iface.MACAddr[:])
+		iface_got, err = snf.GetIfAddrByHW(iface.MACAddr())
 		assertFail(err == nil)
-		assert(iface == *iface_got)
+		assert(bytes.Equal(iface.MACAddr(), iface_got.MACAddr()))
 	}
-	_, err = GetIfAddrByName("some_eth0")
-	assert(IsEnodev(err))
-	_, err = GetIfAddrByHW([]byte{0, 1, 2, 3, 4, 5})
-	assert(IsEnodev(err))
-}
-
-func TestInject(t *testing.T) {
-	assertFail := newAssert(t, true)
-	assert := newAssert(t, false)
-
-	teardown, err := setup(t)
-	defer teardown(t)
-	assertFail(err == nil)
-
-	h, err := OpenInjectHandle(0, 0)
-	assertFail(err == nil)
-	defer h.Close()
-
-	signal.Notify(h.SigChannel(), syscall.SIGUSR1)
-
-	eth := []byte{
-		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // dst mac
-		0x0, 0x11, 0x22, 0x33, 0x44, 0x55, // src mac
-		0x08, 0x0, // ether type
-	}
-
-	ip := []byte{
-		0x45, 0x0, 0x0, 0x3c, 0xa6, 0xc3,
-		0x40, 0x0, 0x40, 0x06, 0x3d, 0xd8, // ip header
-		0xc0, 0xa8, 0x50, 0x2f, // src ip
-		0xc0, 0xa8, 0x50, 0x2c, // dst ip
-	}
-
-	tcp := []byte{
-		0xaf, 0x14, // src port
-		0x0, 0x50, // dst port
-	}
-
-	packet := append(append(eth, ip...), tcp...)
-
-	s := h.NewSender(time.Second, 0)
-	assert(s.Send(packet) == nil)
-	assert(s.SendVec(eth, ip, tcp) == nil)
-	err = s.Sched(1000, packet)
-	assert(IsEnotsup(err) || err == nil)
-	err = s.SchedVec(1000, eth, ip, tcp)
-	assert(IsEnotsup(err) || err == nil)
-
-	// kiling spree and wait a bit
-	syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
-	time.Sleep(100 * time.Millisecond)
-
-	assert(s.Send(packet) == io.EOF)
-	assert(s.SendVec(eth, ip, tcp) == io.EOF)
-	assert(s.Sched(1000, packet) == io.EOF)
-	assert(s.SchedVec(1000, eth, ip, tcp) == io.EOF)
+	iface, err := snf.GetIfAddrByName("some_eth0")
+	assert(err == nil && iface == nil)
+	iface, err = snf.GetIfAddrByHW([]byte{0, 1, 2, 3, 4, 5})
+	assert(err == nil && iface == nil)
 }
 
 func TestHandleRing(t *testing.T) {
@@ -152,12 +100,12 @@ func TestHandleRing(t *testing.T) {
 
 	assertFail(err == nil)
 
-	ifa, err := GetIfAddrs()
+	ifa, err := snf.GetIfAddrs()
 	assert(err == nil)
 	assert(len(ifa) > 0)
 
-	portnum := ifa[0].PortNum
-	h, err := OpenHandleWithOpts(portnum)
+	portnum := ifa[0].PortNum()
+	h, err := snf.OpenHandle(portnum)
 	assert(err == nil)
 	assert(h != nil)
 
@@ -170,19 +118,16 @@ func TestHandleRing(t *testing.T) {
 	assert(r1 != nil)
 
 	_, err = h.OpenRing()
-	assert(IsEbusy(err))
-
-	// we've got 2 opened rings
-	assert(len(h.Rings()) == 2)
+	assert(err == syscall.EBUSY)
 
 	// attempt to close: fail, 2 to go
-	assert(IsEbusy(h.Close()))
+	assert(err == syscall.EBUSY)
 
 	// close 0
 	assert(r0.Close() == nil)
 
 	// attempt to close: fail, 1 to go
-	assert(IsEbusy(h.Close()))
+	assert(h.Close() == syscall.EBUSY)
 
 	// close 1
 	assert(r1.Close() == nil)
@@ -199,7 +144,7 @@ func TestApp(t *testing.T) {
 	defer teardown(t)
 
 	assertFail(err == nil)
-	ifa, err := GetIfAddrs()
+	ifa, err := snf.GetIfAddrs()
 	assert(err == nil)
 
 	assert(len(ifa) > 0)
@@ -208,46 +153,42 @@ func TestApp(t *testing.T) {
 	counters := make([]uint64, len(ifa))
 	// handle all ports
 	for i := range ifa {
-		h, err := OpenHandleWithOpts(ifa[i].PortNum)
+		h, err := snf.OpenHandle(ifa[i].PortNum())
 		assert(err == nil)
 		assert(h != nil)
-		defer h.Wait()
 		defer h.Close()
-		signal.Notify(h.SigChannel(), syscall.SIGUSR1)
 
 		// opening SNF_NUM_RINGS rings
-		var rings []*Ring
+		var rings []*snf.Ring
 		for x := 0; x < 2; x++ {
 			r, err := h.OpenRing()
 			assert(err == nil)
 			assert(r != nil)
+			defer r.Close()
 			rings = append(rings, r)
 		}
 		_, err = h.OpenRing()
-		assert(IsEbusy(err))
+		assert(err == syscall.EBUSY)
 
 		assert(h.Start() == nil)
 		// processing traffic from all rings
 		for _, r := range rings {
 			wg.Add(1)
-			go func(r *Ring, counter *uint64) {
+			go func(r *snf.Ring, counter *uint64) {
 				defer wg.Done()
-				defer r.Close()
-				rcv := r.NewReceiver(time.Second, 256)
+				rcv := snf.NewReader(r, time.Second, 256)
 				defer rcv.Free()
-				snaplen := 1234
-				err := rcv.SetBPF(snaplen, "vlan and tcp")
-				if err != nil {
-					return
-				}
+
+				ch := make(chan os.Signal, 1)
+				signal.Notify(ch, syscall.SIGUSR1)
+				rcv.NotifyWith(ch)
 
 				for rcv.Next() {
 					atomic.AddUint64(counter, 1)
-					assert(snaplen == rcv.BPFResult())
 				}
 
 				// we should be closed by signal
-				assert(rcv.Err() == io.EOF)
+				assert(rcv.Err() != nil)
 			}(r, &counters[i])
 		}
 	}
@@ -269,22 +210,23 @@ func TestApp(t *testing.T) {
 	fmt.Println(counters)
 }
 
-func ExampleOpenHandleWithOpts_first() {
+func ExampleOpenHandle_one() {
 	// This shows how to initialize a handle
 
 	// First, initialize SNF library.
-	if err := Init(); err != nil {
+	if err := snf.Init(); err != nil {
 		return
 	}
 
+	flags := snf.RssIP | snf.RssSrcPort | snf.RssDstPort
 	// Initialize handle for port 0
-	h, err := OpenHandleWithOpts(
-		0,                     // number of port
-		HandlerOptNumRings(3), // number of rings
-		HandlerOptRssFlags(RssIP|RssSrcPort|RssDstPort), // rss flags
-		HandlerOptFlags(PShared),
-		HandlerOptFlags(RxDuplicate), // flags
-		HandlerOptDataRingSize(256),  // Megabytes for dataring size
+	h, err := snf.OpenHandle(
+		0,                             // number of port
+		snf.HandlerOptNumRings(3),     // number of rings
+		snf.HandlerOptRssFlags(flags), // rss flags
+		snf.HandlerOptFlags(snf.PShared),
+		snf.HandlerOptFlags(snf.RxDuplicate), // flags
+		snf.HandlerOptDataRingSize(256),      // Megabytes for dataring size
 	)
 
 	if err != nil {
@@ -297,78 +239,55 @@ func ExampleOpenHandleWithOpts_first() {
 	// with default arguments which mostly imply
 	// that we use environment variables to
 	// alter the handle behaviour
-	h, err = OpenHandleWithOpts(1)
+	h, err = snf.OpenHandle(1)
 	if err != nil {
 		return
 	}
 	defer h.Close()
 }
 
-func ExampleOpenHandleWithOpts_second() {
-	// this function will exit only on signals
-	// SIGINT or SIGSEGV or when both goroutines
-	// handling rings will exit
-	if err := Init(); err != nil {
+func ExampleOpenHandle_two() {
+	if err := snf.Init(); err != nil {
 		return
 	}
 
 	// sample default handler
-	h, err := OpenHandleWithOpts(0)
+	h, err := snf.OpenHandle(0)
 	if err != nil {
 		return
 	}
-	// Wait() is needed because we should wait
-	// for successful closing of rings and the handle;
-	// this is especially important in main().
-	defer h.Wait()
-	// close handle, it's safe to close handle
-	// even if it was closed before
 	defer h.Close()
-
-	// handling signals in case of abnormal exit once a
-	// signal is raised all the rings and handle will be
-	// closed. After that, in case the traffic handling goroutines
-	// call Recv() on a ring, it will return io.EOF. This
-	// would signal those goroutines to exit as well.
-	signal.Notify(h.SigChannel(),
-		syscall.SIGINT,
-		syscall.SIGSEGV,
-	)
 
 	// start capturing traffic
 	if err := h.Start(); err != nil {
 		return
 	}
+	defer h.Stop()
+
 	var wg sync.WaitGroup
 	// wait for goroutines to exit
 	defer wg.Wait()
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		r, err := h.OpenRing()
-		if err != nil {
-			return
-		}
-		defer r.Close()
-		// handle this ring and read packets
-		// until io.EOF
-	}()
 
-	go func() {
-		defer wg.Done()
-		r, err := h.OpenRing()
-		if err != nil {
-			return
-		}
-		defer r.Close()
-		// handle this ring and read packets
-		// until io.EOF
-	}()
+	// open 2 rings and work on them; you should ensure there's at
+	// least 2 rings through environment variables
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r, err := h.OpenRing()
+			if err != nil {
+				return
+			}
+			defer r.Close()
+			// handle this ring and read packets
+			// ...
+		}()
+	}
 }
 
-func ExampleRingReceiver() {
-	var h *Handle
-	h, err := OpenHandleWithOpts(0)
+func ExampleRingReader() {
+	var h *snf.Handle
+	h, err := snf.OpenHandle(0)
 	if err != nil {
 		return
 	}
@@ -381,8 +300,9 @@ func ExampleRingReceiver() {
 	}
 	defer r.Close()
 
-	// abstract ring operations in a RingReceiver object
-	recv := r.NewReceiver(
+	// abstract ring operations in a RingReader object
+	recv := snf.NewReader(
+		r,           // Underlying ring
 		time.Second, // timeout for receiving new packet
 		256,         // how many packets to receive in one call
 	)
