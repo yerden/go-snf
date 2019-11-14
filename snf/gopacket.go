@@ -8,45 +8,42 @@ package snf
 
 import (
 	"github.com/google/gopacket"
+	"time"
 )
 
-func reqDataTs(rc *RecvReq) (data []byte, ci gopacket.CaptureInfo) {
-	data = rc.Data()
+func reqDataCi(req *RecvReq) (data []byte, ci gopacket.CaptureInfo) {
+	data = req.Data()
 	return data, gopacket.CaptureInfo{
 		CaptureLength:  len(data),
-		InterfaceIndex: rc.PortNum(),
+		InterfaceIndex: req.PortNum(),
 		Length:         len(data),
-		Timestamp:      rc.Timestamp(),
+		Timestamp:      time.Unix(0, req.Timestamp()),
 	}
 }
 
 // CaptureInfo returns gopacket.CaptureInfo metadata for retrieved
 // packet.
 func (req *RecvReq) CaptureInfo() (ci gopacket.CaptureInfo) {
-	_, ci = reqDataTs(req)
+	_, ci = reqDataCi(req)
 	return
 }
 
-var _ gopacket.ZeroCopyPacketDataSource = (*RingReceiver)(nil)
-var _ gopacket.PacketDataSource = (*RingReceiver)(nil)
+var _ gopacket.ZeroCopyPacketDataSource = (*RingReader)(nil)
+var _ gopacket.PacketDataSource = (*RingReader)(nil)
 
-// ZeroCopyReadPacketData reads next packet from receiver and returns
-// packet data, gopacket.CaptureInfo metadata and possibly error.
-// This satisfies gopacket.ZeroCopyPacketDataSource interface.
-func (rr *RingReceiver) ZeroCopyReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
+// ZeroCopyReadPacketData implements gopacket.ZeroCopyPacketDataSource.
+func (rr *RingReader) ZeroCopyReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
 	if !rr.LoopNext() {
 		err = rr.Err()
 	} else {
-		data, ci = reqDataTs(rr.req())
+		data, ci = reqDataCi(rr.req())
 	}
 
 	return
 }
 
-// ReadPacketData reads next packet from receiver and returns
-// packet data, gopacket.CaptureInfo metadata and possibly error.
-// This satisfies gopacket.PacketDataSource interface.
-func (rr *RingReceiver) ReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
+// ReadPacketData implements gopacket.PacketDataSource.
+func (rr *RingReader) ReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
 	if data, ci, err = rr.ZeroCopyReadPacketData(); err == nil {
 		data = append(make([]byte, 0, len(data)), data...)
 	}
