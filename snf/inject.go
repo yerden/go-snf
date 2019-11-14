@@ -28,11 +28,7 @@ import "C"
 
 import (
 	"fmt"
-	"io"
 	"os"
-	"os/signal"
-	"sync"
-	"sync/atomic"
 	"time"
 	"unsafe"
 )
@@ -40,36 +36,40 @@ import (
 // InjectStats is a sructure to return statistics from an injection
 // handle.  The hardware-specific counters (nic_) apply to all
 // injection handles.
-type InjectStats struct {
-	// Number of packets sent by this injection endpoint
-	InjPktSend uint64
-	// Number of total packets sent by Hardware Interface
-	NicPktSend uint64
-	// Number of raw bytes sent by Hardware Interface (see
-	// nic_bytes_recv)
-	NicBytesSend uint64
+type InjectStats C.struct_snf_inject_stats
+
+// Number of packets sent by this injection endpoint
+func (s *InjectStats) InjPktSend() uint64 {
+	return uint64(s.inj_pkt_send)
 }
+
+// Number of total packets sent by Hardware Interface
+func (s *InjectStats) NicPktSend() uint64 {
+	return uint64(s.nic_pkt_send)
+}
+
+// Number of raw bytes sent by Hardware Interface (see
+// nic_bytes_recv)
+func (s *InjectStats) NicBytesSend() uint64 {
+	return uint64(s.nic_bytes_send)
+}
+
+// type InjectHandle struct {
+// inj   C.snf_inject_t
+// wg    sync.WaitGroup
+// sigCh chan os.Signal
+
+// // 0   handle is operational
+// // 1   handle is non-operational
+// //     and can only be closed
+// // 2   handle is closed
+// state int32
+// }
 
 // InjectHandle is an opaque injection handle, allocated by
 // OpenInjectHandle. There are only a limited amount of injection
 // handles per NIC/port.
-type InjectHandle struct {
-	inj   C.snf_inject_t
-	wg    sync.WaitGroup
-	sigCh chan os.Signal
-
-	// 0   handle is operational
-	// 1   handle is non-operational
-	//     and can only be closed
-	// 2   handle is closed
-	state int32
-}
-
-func makeInjectHandle(inj C.snf_inject_t) *InjectHandle {
-	return &InjectHandle{
-		inj:   inj,
-		sigCh: make(chan os.Signal, 10)}
-}
+type InjectHandle C.struct_snf_inject_handle
 
 // OpenInjectHandle opens a port for injection and allocate an
 // injection handle.
@@ -87,42 +87,17 @@ func makeInjectHandle(inj C.snf_inject_t) *InjectHandle {
 // EBUSY error means no more injection handles for this port are
 // available. ENOMEM error means we ran out of memory to allocate new
 // injection handle.
-func OpenInjectHandle(portnum, flags int) (h *InjectHandle, err error) {
-	var inj C.snf_inject_t
-	err = retErr(C.snf_inject_open(C.int(portnum), C.int(flags), &inj))
-	if err == nil {
-		h = makeInjectHandle(inj)
-		defer h.houseKeep()
+func OpenInjectHandle(portnum int, flags ...int) (h *InjectHandle, err error) {
+	x := C.int(0)
+	for _, f := range flags {
+		x |= C.int(f)
 	}
-	return
+	var inj C.snf_inject_t
+	return (*InjectHandle)(unsafe.Pointer(inj)), retErr(C.snf_inject_open(C.int(portnum), x, &inj))
 }
 
-func (h *InjectHandle) houseKeep() {
-	wg := &h.wg
-
-	wg.Add(1)
-	go func() {
-		// notify that this Handle is down
-		// as soon as we're out of here
-		defer wg.Done()
-		for sig := range h.sigCh {
-			// signal arrived
-			fmt.Printf("SNF inject handle caught %v\n", sig)
-			atomic.StoreInt32(&h.state, stateNotOk)
-		}
-		// channel closes when Close() is called
-		atomic.StoreInt32(&h.state, stateClosed)
-	}()
-}
-
-// SigChannel returns a channel for signal notifications.
-// signal.Notify() may then be used on this channel.
-//
-// All consequent receiving operations on the InjectHandle will return
-// io.EOF error. As a rule of thumb that means that you should halt
-// all operations on this InjectHandle and gracefully exit.
-func (h *InjectHandle) SigChannel() chan<- os.Signal {
-	return h.sigCh
+func injHandle(inj *InjectHandle) C.snf_inject_t {
+	return C.snf_inject_t(unsafe.Pointer(inj))
 }
 
 // Close closes injection handle and ensures that all pending sends
@@ -133,14 +108,7 @@ func (h *InjectHandle) SigChannel() chan<- os.Signal {
 // made available again for the underlying port’s limited amount of
 // handles.
 func (h *InjectHandle) Close() error {
-	err := retErr(C.snf_inject_close(h.inj))
-	if err == nil {
-		// mark as closed
-		signal.Stop(h.sigCh)
-		close(h.sigCh)
-	}
-
-	return err
+	return retErr(C.snf_inject_close(injHandle(h)))
 }
 
 // GetStats gets statistics from an injection handle.
@@ -149,11 +117,8 @@ func (h *InjectHandle) Close() error {
 // for time-critical applications or for high levels of accuracy.
 // Statistics are only updated by the NIC periodically.
 func (h *InjectHandle) GetStats() (*InjectStats, error) {
-	if atomic.LoadInt32(&h.state) != stateOk {
-		return nil, io.EOF
-	}
 	stats := &InjectStats{}
-	return stats, retErr(C.snf_inject_getstats(h.inj,
+	return stats, retErr(C.snf_inject_getstats(injHandle(h),
 		(*C.struct_snf_inject_stats)(unsafe.Pointer(stats))))
 }
 
@@ -163,18 +128,15 @@ func (h *InjectHandle) GetStats() (*InjectStats, error) {
 // reads information kept in kernel host memory (i.e. no PCI bus
 // reads).
 func (h *InjectHandle) GetSpeed() (speed uint64, err error) {
-	if atomic.LoadInt32(&h.state) != stateOk {
-		return 0, io.EOF
-	}
-	err = retErr(C.snf_get_injection_speed(h.inj, (*C.ulong)(&speed)))
+	err = retErr(C.snf_get_injection_speed(injHandle(h), (*C.ulong)(&speed)))
 	return
 }
 
 // Sender object wraps SNF injection API and provides packet sending
 // capabilities with some safeguarding.
 type Sender struct {
-	inj   C.snf_inject_t
-	state *int32
+	*InjectHandle
+	sigCh <-chan os.Signal
 
 	timeoutMs C.int
 	flags     C.int
@@ -193,13 +155,12 @@ type Sender struct {
 // error.
 //
 // Flags are currently not supported and should be set to 0.
-func (h *InjectHandle) NewSender(timeout time.Duration, flags int) *Sender {
+func NewSender(h *InjectHandle, timeout time.Duration, flags int) *Sender {
 	return &Sender{
-		inj:       h.inj,
-		state:     &h.state,
-		timeoutMs: C.int(dur2ms(timeout)),
-		flags:     C.int(flags),
-		frags:     make([]C.struct_snf_pkt_fragment, 100),
+		InjectHandle: h,
+		timeoutMs:    C.int(dur2ms(timeout)),
+		flags:        C.int(flags),
+		frags:        make([]C.struct_snf_pkt_fragment, 100),
 	}
 }
 
@@ -220,6 +181,23 @@ func (s *Sender) checkFragBuf(length int) {
 	if d := length - len(s.frags); d > 0 {
 		s.frags = append(s.frags, make([]C.struct_snf_pkt_fragment, d)...)
 	}
+}
+
+// NotifyWith installs signal notification channel which is presumably
+// registered via signal.Notify.
+func (s *Sender) NotifyWith(ch <-chan os.Signal) {
+	s.sigCh = ch
+}
+
+func (s *Sender) checkSignal() error {
+	if ch := s.sigCh; ch != nil {
+		select {
+		case sig := <-ch:
+			return fmt.Errorf("caught: %v", sig)
+		default:
+		}
+	}
+	return nil
 }
 
 // Send sends a packet and optionally block until send resources are
@@ -255,11 +233,11 @@ func (s *Sender) checkFragBuf(length int) {
 // packet out in a timely fashion without requiring further calls into
 // SNF.
 func (s *Sender) Send(pkt []byte) error {
-	if atomic.LoadInt32(s.state) != stateOk {
-		return io.EOF
+	if err := s.checkSignal(); err != nil {
+		return err
 	}
-	return retErr(C.snf_inject_send(s.inj, s.timeoutMs, s.flags,
-		unsafe.Pointer(&pkt[0]), C.uint(len(pkt))))
+	return retErr(C.snf_inject_send(injHandle(s.InjectHandle), s.timeoutMs,
+		s.flags, unsafe.Pointer(&pkt[0]), C.uint(len(pkt))))
 }
 
 // SendVec sends a packet assembled from a vector of fragments and
@@ -291,14 +269,14 @@ func (s *Sender) Send(pkt []byte) error {
 // packet out in a timely fashion without requiring further calls into
 // SNF.
 func (s *Sender) SendVec(pkt ...[]byte) error {
-	if atomic.LoadInt32(s.state) != stateOk {
-		return io.EOF
+	if err := s.checkSignal(); err != nil {
+		return err
 	}
 	s.checkFragBuf(len(pkt))
 	hint := makeFrags(pkt, s.frags)
-	return retErr(C.go_inject_send_v(s.inj, s.timeoutMs, s.flags,
-		C.uintptr_t(uintptr(unsafe.Pointer(&s.frags[0]))), C.int(len(pkt)),
-		hint))
+	return retErr(C.go_inject_send_v(injHandle(s.InjectHandle), s.timeoutMs,
+		s.flags, C.uintptr_t(uintptr(unsafe.Pointer(&s.frags[0]))),
+		C.int(len(pkt)), hint))
 }
 
 // Sched sends a packet with hardware delay and optionally blocks
@@ -339,11 +317,11 @@ func (s *Sender) SendVec(pkt ...[]byte) error {
 // SNF. The implementation guarantees that it will eventually send the
 // packet out, as scheduled, without requiring further calls into SNF.
 func (s *Sender) Sched(delayNs int64, pkt []byte) error {
-	if atomic.LoadInt32(s.state) != stateOk {
-		return io.EOF
+	if err := s.checkSignal(); err != nil {
+		return err
 	}
-	return retErr(C.snf_inject_sched(s.inj, s.timeoutMs, s.flags,
-		unsafe.Pointer(&pkt[0]), C.uint(len(pkt)), C.ulong(delayNs)))
+	return retErr(C.snf_inject_sched(injHandle(s.InjectHandle), s.timeoutMs,
+		s.flags, unsafe.Pointer(&pkt[0]), C.uint(len(pkt)), C.ulong(delayNs)))
 }
 
 // SchedVec sends a packet assembled from a vector of fragments at a
@@ -383,12 +361,12 @@ func (s *Sender) Sched(delayNs int64, pkt []byte) error {
 // SNF. The implementation guarantees that it will eventually send the
 // packet out, as scheduled, without requiring further calls into SNF.
 func (s *Sender) SchedVec(delayNs int64, pkt ...[]byte) error {
-	if atomic.LoadInt32(s.state) != stateOk {
-		return io.EOF
+	if err := s.checkSignal(); err != nil {
+		return err
 	}
 	s.checkFragBuf(len(pkt))
 	hint := makeFrags(pkt, s.frags)
-	return retErr(C.go_inject_sched_v(s.inj, s.timeoutMs, s.flags,
-		C.uintptr_t(uintptr(unsafe.Pointer(&s.frags[0]))), C.int(len(pkt)),
+	return retErr(C.go_inject_sched_v(injHandle(s.InjectHandle), s.timeoutMs,
+		s.flags, C.uintptr_t(uintptr(unsafe.Pointer(&s.frags[0]))), C.int(len(pkt)),
 		hint, C.ulong(delayNs)))
 }
