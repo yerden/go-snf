@@ -12,6 +12,12 @@ import (
 	"unsafe"
 )
 
+/*
+#cgo CFLAGS: -I/opt/snf/include
+#cgo LDFLAGS: -L/opt/snf/lib -lsnf -lpcap
+#include <snf.h>
+#include "wrapper.h"
+*/
 import "C"
 
 func retErr(x C.int) error {
@@ -31,32 +37,10 @@ func array2Slice(ptr uintptr, length int) (data []byte) {
 	return
 }
 
-// IsEagain returns true if an error is EAGAIN.
-func IsEagain(err error) bool {
-	return syscall.Errno(syscall.EAGAIN) == err
+func intErr(out *C.struct_compound_int) (int, error) {
+	return int(*(*C.int)(unsafe.Pointer(out))), retErr(out.rc)
 }
 
-// IsEinval returns true if an error is EINVAL.
-func IsEinval(err error) bool {
-	return syscall.Errno(syscall.EINVAL) == err
-}
-
-// IsEnodev returns true if an error is ENODEV.
-func IsEnodev(err error) bool {
-	return syscall.Errno(syscall.ENODEV) == err
-}
-
-// IsEbusy returns true if an error is EBUSY.
-func IsEbusy(err error) bool {
-	return syscall.Errno(syscall.EBUSY) == err
-}
-
-// IsEnomsg returns true if an error is ENOMSG.
-func IsEnomsg(err error) bool {
-	return syscall.Errno(syscall.ENOMSG) == err
-}
-
-// IsEnotsup returns true if an error is ENOTSUP.
-func IsEnotsup(err error) bool {
-	return syscall.Errno(syscall.ENOTSUP) == err
+func uint64Err(out *C.struct_compound_int) (uint64, error) {
+	return uint64(*(*C.ulong)(unsafe.Pointer(out))), retErr(out.rc)
 }
