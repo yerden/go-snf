@@ -149,7 +149,7 @@ func (req *RecvReq) Data() (data []byte) {
 	return
 }
 
-// Timestamp() returns 64-bit timestamp in nanoseconds.
+// Timestamp returns 64-bit timestamp in nanoseconds.
 func (req *RecvReq) Timestamp() int64 {
 	return int64(req.timestamp)
 }
@@ -159,7 +159,7 @@ func (req *RecvReq) PortNum() int {
 	return int(req.portnum)
 }
 
-// HwHash() returns hash calculated by the NIC.
+// HwHash returns hash calculated by the NIC.
 func (req *RecvReq) HwHash() uint32 {
 	return uint32(req.hw_hash)
 }

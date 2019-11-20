@@ -38,18 +38,18 @@ import (
 // injection handles.
 type InjectStats C.struct_snf_inject_stats
 
-// Number of packets sent by this injection endpoint
+// InjPktSend returns number of packets sent by this injection endpoint.
 func (s *InjectStats) InjPktSend() uint64 {
 	return uint64(s.inj_pkt_send)
 }
 
-// Number of total packets sent by Hardware Interface
+// NicPktSend returns number of total packets sent by Hardware Interface.
 func (s *InjectStats) NicPktSend() uint64 {
 	return uint64(s.nic_pkt_send)
 }
 
-// Number of raw bytes sent by Hardware Interface (see
-// nic_bytes_recv)
+// NicBytesSend Number of raw bytes sent by Hardware Interface (see
+// nic_bytes_recv).
 func (s *InjectStats) NicBytesSend() uint64 {
 	return uint64(s.nic_bytes_send)
 }
