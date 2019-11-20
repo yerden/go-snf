@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -31,16 +32,14 @@ func main() {
 	// choose first port
 	portnum := ifa[0].PortNum
 
-	dev, err := snf.OpenHandle(portnum,
-		0, // set SNF_NUM_RINGS
-		snf.RssIP|snf.RssSrcPort|snf.RssDstPort,
-		snf.PShared,
-		0, // set SNF_DATARING_SIZE
+	// set SNF_NUM_RINGS, SNF_DATARING_SIZE in environment
+	dev, err := snf.OpenHandle(portnum(),
+		snf.HandlerOptRssFlags(snf.RssIP|snf.RssSrcPort|snf.RssDstPort),
+		snf.HandlerOptFlags(snf.PShared),
 	)
 	if err != nil {
 		panic(err.Error())
 	}
-	signal.Notify(dev.SigChannel(), syscall.SIGINT, syscall.SIGUSR1)
 
 	// open rings until exhausted
 	var rings []*snf.Ring
@@ -65,11 +64,14 @@ func main() {
 			defer wg.Done()
 			n := 5
 			defer log.Printf("ring #%d received %d packets\n", i, n)
-			rcv := ring.NewReceiver(
+			rcv := snf.NewReader(ring,
 				time.Millisecond, // 1 ms to wait for packets
 				200,              // size of packet bunch
 			)
 			defer rcv.Free()
+			ch := make(chan os.Signal)
+			signal.Notify(ch, syscall.SIGINT, syscall.SIGUSR1)
+			rcv.NotifyWith(ch)
 			for j := 0; j < n; j++ {
 				if !rcv.LoopNext() {
 					panic(rcv.Err().Error())
