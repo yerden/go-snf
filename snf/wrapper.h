@@ -1,10 +1,10 @@
 #ifndef _WRAPPER_H_
 #define _WRAPPER_H_
 
-static void set_rss_flags(struct snf_rss_params *rss, int flags)
+static void add_rss_flags(struct snf_rss_params *rss, int flags)
 {
 	rss->mode = SNF_RSS_FLAGS;
-	rss->params.rss_flags = flags;
+	rss->params.rss_flags |= flags;
 }
 
 typedef int (rss_hash_fn) (struct snf_recv_req *, void *, uint32_t *);

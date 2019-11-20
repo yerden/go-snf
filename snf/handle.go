@@ -130,8 +130,10 @@ func HandlerOptFlags(flags int) HandlerOption {
 // Note that this option unsets HandlerOptRssFunc option.
 func HandlerOptRssFlags(flags int) HandlerOption {
 	return HandlerOption{func(opts *handlerOpts) {
-		opts.rss = &C.struct_snf_rss_params{}
-		C.set_rss_flags(opts.rss, C.int(flags))
+		if opts.rss == nil {
+			opts.rss = &C.struct_snf_rss_params{}
+		}
+		C.add_rss_flags(opts.rss, C.int(flags))
 	}}
 }
 
