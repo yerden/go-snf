@@ -188,7 +188,9 @@ func TestApp(t *testing.T) {
 				}
 
 				// we should be closed by signal
-				assert(rcv.Err() != nil)
+				err := rcv.Err()
+				assert(err != nil)
+				assert(err.(*snf.ErrSignal).Signal == syscall.SIGUSR1)
 			}(r, &counters[i])
 		}
 	}

@@ -49,6 +49,12 @@ func NewReader(r *Ring, timeout time.Duration, burst int) *RingReader {
 	}
 }
 
+type ErrSignal struct{ os.Signal }
+
+func (e *ErrSignal) Error() string {
+	return fmt.Sprintf("Caught signal: %v", e.Signal)
+}
+
 // NotifyWith installs signal notification channel which is presumably
 // registered via signal.Notify.
 func (rr *RingReader) NotifyWith(ch <-chan os.Signal) {
@@ -59,7 +65,7 @@ func (rr *RingReader) checkSignal() error {
 	if ch := rr.sigCh; ch != nil {
 		select {
 		case sig := <-ch:
-			return fmt.Errorf("caught: %v", sig)
+			return &ErrSignal{sig}
 		default:
 		}
 	}
