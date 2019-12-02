@@ -19,6 +19,4 @@ After that you can use the package via your preferred module management solution
 Please note that your project executable would be linked to `libsnf` dynamically. Therefore, in order to run it you should specify the location of the library with `LD_LIBRARY_PATH` environment variable or `ldconfig` subsystem. `libsnf` default path in SNFv3 installation is `/opt/snf/lib`.
 
 ### Caveats
-CI build currently does only static code checks. No build is performed due to third-party proprietary library dependency. Locally, you can run some unit tests supplied in this package.
-
 The package is under development so API may experience some changes. Any contributions from Myricom NICs users are welcome.
