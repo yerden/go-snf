@@ -49,8 +49,10 @@ func NewReader(r *Ring, timeout time.Duration, burst int) *RingReader {
 	}
 }
 
+// ErrSignal wraps os.Signal as an error.
 type ErrSignal struct{ os.Signal }
 
+// Error implements error interface.
 func (e *ErrSignal) Error() string {
 	return fmt.Sprintf("Caught signal: %v", e.Signal)
 }
