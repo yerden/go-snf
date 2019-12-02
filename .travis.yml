@@ -1,5 +1,7 @@
 language: go
 
+dist: bionic
+
 # Force-enable Go modules. This will be unnecessary when Go 1.12 lands.
 # env:
   # - GO111MODULE=on
@@ -7,7 +9,7 @@ language: go
 # You don't need to test on very old version of the Go compiler. It's the user's
 # responsibility to keep their compilers up to date.
 go:
-  - 1.11.x
+  - 1.13.x
 
 # Only clone the most recent commit.
 git:
@@ -21,6 +23,10 @@ install: true
 notifications:
   email: false
 
+env:
+  global:
+    - SNF_URL="https://cspi-sdrive2.s3-accelerate.amazonaws.com/a0i0a000008fgK5AAI%2Fmyri_snf-3.0.19.50887_362f3c18f.rhel-3447.x86_64.rpm?response-content-disposition=attachment%3Bfilename*%3DUTF-8%27%27myri_snf-3.0.19.50887_362f3c18f.rhel-3447.x86_64.rpm&AWSAccessKeyId=AKIAIHVRPT3ZSGYDYJJA&Expires=2147483647&Signature=3baj6mVLy%2FRh3NrXo7GxK%2BTX1%2Bs%3D"
+
 # Anything in before_script that returns a nonzero exit code will flunk the
 # build and immediately stop. It's sorta like having set -e enabled in bash.
 # Make sure golangci-lint is vendored.
@@ -33,6 +39,10 @@ before_script:
   - go get -u github.com/fzipp/gocyclo
   - go get -u golang.org/x/lint/golint
   - go get -u github.com/gordonklaus/ineffassign
+  - sudo apt-get install -y rpm2cpio
+  - echo $SNF_URL
+  - curl -o snf.rpm $SNF_URL
+  - sudo sh -c "cat snf.rpm | rpm2cpio | cpio -D / -i -d"
 
 # script always runs to completion (set +e). If we have linter issues AND a
 # failing test, we want to see both. Configure golangci-lint with a
@@ -46,4 +56,6 @@ script:
   - test -z $(gofmt -l -s .)
   - gocyclo .
   - ineffassign .
-  - golint . || (exit 0)
+  - golint .
+  - go vet
+  - go build
