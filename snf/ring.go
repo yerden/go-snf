@@ -1,9 +1,6 @@
 package snf
 
 /*
-#cgo CFLAGS: -I/opt/snf/include
-#cgo LDFLAGS: -L/opt/snf/lib -lsnf
-#include <snf.h>
 #include "wrapper.h"
 */
 import "C"

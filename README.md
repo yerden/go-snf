@@ -9,14 +9,15 @@ Non-Go requirements:
 * `libpcap` library and include headers. Consult your system documentation on how to install them.
 * Tested on Linux environment only (Centos 7, Ubuntu Trusty).
 
-By default this package assumes that SNFv3 is installed to `/opt/snf`. If it's not your case, you can specify the location with these environment variables prior to building your project:
+### SNF library location
+If you have SNF library installed in default location `/opt/snf` then you can simply build as it is.
+If you want to test something in case you don't have installed SNF dependency you can specify `snf_mockup` build tag. In this case, all SNF calls will be implemented as stub functions.
+
+Alternatively, you can specify SNF library custom location by supplying it in environment:
 ```
 export CGO_CFLAGS="-I/path/to/snf/include"
 export CGO_LDFLAGS="-L/path/to/snf/lib -lsnf"
 ```
-After that you can use the package via your preferred module management solution (`go get`, `dep` etc.). Import path is `github.com/yerden/go-snf/snf`.
-
-Please note that your project executable would be linked to `libsnf` dynamically. Therefore, in order to run it you should specify the location of the library with `LD_LIBRARY_PATH` environment variable or `ldconfig` subsystem. `libsnf` default path in SNFv3 installation is `/opt/snf/lib`.
 
 ### Caveats
 The package is under development so API may experience some changes. Any contributions from Myricom NICs users are welcome.

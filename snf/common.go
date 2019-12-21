@@ -12,12 +12,6 @@ import (
 	"unsafe"
 )
 
-/*
-#cgo CFLAGS: -I/opt/snf/include
-#cgo LDFLAGS: -L/opt/snf/lib -lsnf
-#include <snf.h>
-#include "wrapper.h"
-*/
 import "C"
 
 func retErr(x C.int) error {

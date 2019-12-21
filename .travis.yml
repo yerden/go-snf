@@ -59,3 +59,5 @@ script:
   - golint .
   - go vet
   - go build
+  - go vet -tags snf_mockup
+  - go build -tags snf_mockup
