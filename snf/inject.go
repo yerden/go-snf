@@ -5,7 +5,7 @@
 
 package snf
 
-/* #include <snf.h>
+/* #include "wrapper.h"
 int go_inject_send_v(snf_inject_t inj, int timeout_ms, int flags,
        uintptr_t frags_vec, int nfrags,
        uint32_t length_hint)

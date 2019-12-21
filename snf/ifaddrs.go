@@ -1,7 +1,7 @@
 package snf
 
 /*
-#include <snf.h>
+#include "wrapper.h"
 */
 import "C"
 
