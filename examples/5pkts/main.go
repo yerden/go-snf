@@ -8,7 +8,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/yerden/go-snf/snf"
 )
 
@@ -26,7 +25,9 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	} else {
-		spew.Dump(ifa)
+		for i, _ := range ifa {
+			log.Println(ifa[i])
+		}
 	}
 
 	// choose first port
@@ -46,11 +47,11 @@ func main() {
 	for {
 		ring, err := dev.OpenRing()
 		if err == nil {
-			spew.Println("opened ring #", len(rings), "on port #", portnum)
+			log.Println("opened ring #", len(rings), "on port #", portnum)
 			rings = append(rings, ring)
 			defer ring.Close()
 		} else if err == syscall.Errno(syscall.EBUSY) {
-			spew.Println("unable to open more rings")
+			log.Println("unable to open more rings")
 			break
 		} else {
 			panic(err.Error())
