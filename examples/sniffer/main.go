@@ -18,30 +18,35 @@ var devName = flag.String("i", "", "Specify interface name")
 var portID = flag.Int("n", 0, "Specify port id")
 var nPkts = flag.Int("c", 0, "Number of packets to capture")
 var pcapFile = flag.String("w", "", "Pcap file name to write")
+var snapLen = flag.Int("s", 65536, "Snap Length")
 
 // This is an example application.
 // Please set SNF_APP_ID, SNF_NUM_RINGS, SNF_DATARING_SIZE
 // and run as root.
 func main() {
+	flag.Parse()
 	// init SNF
 	if err := snf.Init(); err != nil {
 		panic(err.Error())
 	}
 
-	var w *pcapgo.NgWriter
 	wmtx := &sync.Mutex{}
-	if *pcapFile != "" {
-		f, err := os.Open(*pcapFile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer f.Close()
-		w, err = pcapgo.NewNgWriter(f, layers.LinkTypeEthernet)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer w.Flush()
+	if *pcapFile == "" {
+		log.Fatal("specify output file")
 	}
+
+	f, err := os.OpenFile(*pcapFile, os.O_RDWR|os.O_CREATE, 0755)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	pcapgo.DefaultNgInterface.SnapLength = uint32(*snapLen)
+	w, err := pcapgo.NewNgWriter(f, layers.LinkTypeEthernet)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer w.Flush()
 
 	var portNum uint32
 
@@ -79,43 +84,45 @@ func main() {
 			panic(err.Error())
 		}
 	}
-
-	var wg sync.WaitGroup
+	stopCh := make(chan struct{})
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGUSR1)
 	for i, ring := range rings {
-		wg.Add(1)
 		go func(i int, ring *snf.Ring) {
-			defer wg.Done()
-			n := 5
-			defer log.Printf("ring #%d received %d packets\n", i, n)
-			rcv := snf.NewReader(ring,
-				time.Millisecond, // 1 ms to wait for packets
-				200,              // size of packet bunch
-			)
-			defer rcv.Free()
-			ch := make(chan os.Signal)
-			signal.Notify(ch, syscall.SIGINT, syscall.SIGUSR1)
-			rcv.NotifyWith(ch)
+			defer func() {
+				stopCh <- struct{}{}
+			}()
+			var req snf.RecvReq
+			for j := 0; j < *nPkts; {
+				err := ring.Recv(100*time.Millisecond, &req)
+				if err == syscall.EAGAIN {
+					continue
+				} else if err != nil {
+					panic(err)
+				}
 
-			j := 0
-			for rcv.LoopNext() {
-				req := rcv.RecvReq()
-				// TODO: filter
 				wmtx.Lock()
-				err := w.WritePacket(req.CaptureInfo(), req.Data())
+				ci := req.CaptureInfo()
+				ci.InterfaceIndex = 0
+				err = w.WritePacket(ci, req.Data())
 				wmtx.Unlock()
 				if err != nil {
-					log.Fatal(err)
+					panic(err)
 				}
-				if j++; *nPkts != 0 && j == *nPkts {
-					break
-				}
+				j++
 			}
-
-			if rcv.Err() != nil {
-				log.Fatal(rcv.Err())
-			}
-			log.Printf("received %d bytes\n", j)
 		}(i, ring)
 	}
-	wg.Wait()
+
+	for range rings {
+		select {
+		case <-stopCh:
+		case <-sigCh:
+			return
+		}
+	}
+}
+
+func doNothing(req *snf.RecvReq) error {
+	return nil
 }
