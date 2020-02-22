@@ -89,29 +89,14 @@ func (rr *RingReader) reload() bool {
 	return rr.err == nil
 }
 
-func (rr *RingReader) reloadOne() bool {
-	if rr.err = rr.checkSignal(); rr.err != nil {
-		return false
-	}
-	rr.err = rr.Recv(rr.timeout, &rr.reqs[0])
-	rr.received = 1
-	return rr.err == nil
-}
-
 // RawNext gets next packet out of ring. If true, the operation is a
 // success, otherwise you should halt all actions on the receiver
 // until Err() error is examined and needed actions are performed.
 func (rr *RingReader) rawNext() bool {
 	for {
 		if rr.index++; rr.index >= rr.received {
-			rr.index = 0
-			var ok bool
-			if len(rr.reqs) == 1 {
-				ok = rr.reloadOne()
-			} else {
-				ok = rr.reload()
-			}
-			if !ok {
+			if rr.index = 0; !rr.reload() {
+				rr.received = 0
 				return false
 			}
 		}
