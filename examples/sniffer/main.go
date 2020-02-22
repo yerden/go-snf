@@ -84,45 +84,37 @@ func main() {
 			panic(err.Error())
 		}
 	}
-	stopCh := make(chan struct{})
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGUSR1)
+
+	var wg sync.WaitGroup
 	for i, ring := range rings {
 		go func(i int, ring *snf.Ring) {
-			defer func() {
-				stopCh <- struct{}{}
-			}()
-			var req snf.RecvReq
-			for j := 0; j < *nPkts; {
-				err := ring.Recv(100*time.Millisecond, &req)
-				if err == syscall.EAGAIN {
-					continue
-				} else if err != nil {
-					panic(err)
-				}
+			defer wg.Done()
+			rcv := snf.NewReader(ring,
+				time.Millisecond, // 1 ms to wait for packets
+				200,              // size of packet bunch
+			)
+			defer rcv.Free()
+			ch := make(chan os.Signal)
+			signal.Notify(ch, syscall.SIGINT, syscall.SIGUSR1)
+			rcv.NotifyWith(ch)
 
-				wmtx.Lock()
+			j := 0
+			for rcv.LoopNext() {
+				req := rcv.RecvReq()
 				ci := req.CaptureInfo()
 				ci.InterfaceIndex = 0
+				wmtx.Lock()
 				err = w.WritePacket(ci, req.Data())
 				wmtx.Unlock()
 				if err != nil {
 					panic(err)
 				}
-				j++
+				if j++; j >= *nPkts {
+					break
+				}
 			}
 		}(i, ring)
 	}
 
-	for range rings {
-		select {
-		case <-stopCh:
-		case <-sigCh:
-			return
-		}
-	}
-}
-
-func doNothing(req *snf.RecvReq) error {
-	return nil
+	wg.Wait()
 }
