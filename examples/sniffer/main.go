@@ -87,6 +87,7 @@ func main() {
 
 	var wg sync.WaitGroup
 	for i, ring := range rings {
+		wg.Add(1)
 		go func(i int, ring *snf.Ring) {
 			defer wg.Done()
 			rcv := snf.NewReader(ring,
