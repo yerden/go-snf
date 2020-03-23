@@ -45,7 +45,6 @@ func NewReader(r *Ring, timeout time.Duration, burst int) *RingReader {
 		Ring:    r,
 		reqs:    make([]RecvReq, burst),
 		timeout: timeout,
-		index:   0,
 	}
 }
 
@@ -86,6 +85,9 @@ func (rr *RingReader) reload() bool {
 		return false
 	}
 	rr.received, rr.err = rr.RecvMany(rr.timeout, rr.reqs, &rr.qinfo)
+	if rr.err != nil {
+		rr.received = 0
+	}
 	return rr.err == nil
 }
 
@@ -93,16 +95,11 @@ func (rr *RingReader) reload() bool {
 // success, otherwise you should halt all actions on the receiver
 // until Err() error is examined and needed actions are performed.
 func (rr *RingReader) rawNext() bool {
-	for {
-		if rr.index++; rr.index >= rr.received {
-			if rr.index = 0; !rr.reload() {
-				rr.received = 0
-				return false
-			}
-		}
-
+	if rr.index++; rr.index < rr.received {
 		return true
 	}
+	rr.index = 0
+	return rr.reload()
 }
 
 func (rr *RingReader) req() *RecvReq {
