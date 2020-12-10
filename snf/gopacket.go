@@ -33,7 +33,7 @@ var _ gopacket.PacketDataSource = (*RingReader)(nil)
 
 // ZeroCopyReadPacketData implements gopacket.ZeroCopyPacketDataSource.
 func (rr *RingReader) ZeroCopyReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
-	if !rr.LoopNext() {
+	if !rr.Next() {
 		err = rr.Err()
 	} else {
 		data, ci = reqDataCi(rr.req())
