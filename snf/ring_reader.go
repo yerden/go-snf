@@ -6,11 +6,20 @@
 
 package snf
 
+/*
+#include "wrapper.h"
+#include "ring_reader.h"
+*/
+import "C"
+
 import (
 	"fmt"
 	"os"
+	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 // RingReader wraps SNF's borrow-many-return-many model of packets
@@ -18,17 +27,32 @@ import (
 // to access low-level SNF API but maintain compatibility with
 // gopacket's layers decoding abilities.
 type RingReader struct {
-	*Ring
+	reader *C.struct_ring_reader
 
-	sigCh    <-chan os.Signal
-	reqs     []RecvReq
-	index    int
-	received int
-	timeout  time.Duration
-	qinfo    RingQInfo
+	// killed
+	stopped uint32
 
-	// last error
+	sig os.Signal
+
 	err error
+
+	// index of current snf_recv_req
+	n C.int
+}
+
+// ErrSignal wraps os.Signal as an error.
+type ErrSignal struct{ os.Signal }
+
+// Error implements error interface.
+func (e *ErrSignal) Error() string {
+	return fmt.Sprintf("Caught signal: %v", e.Signal)
+}
+
+func (rr *RingReader) recvReq(n C.int) *RecvReq {
+	p := unsafe.Pointer(rr.reader)
+	p = unsafe.Pointer(uintptr(p) + uintptr(C.RING_READER_REQ_VECTOR_OFF))
+	p = unsafe.Pointer(uintptr(p) + uintptr(n)*C.sizeof_struct_snf_recv_req)
+	return (*RecvReq)(p)
 }
 
 // NewReader creates new RingReader.  timeout semantics is the same as
@@ -41,79 +65,42 @@ type RingReader struct {
 // case, RingReader will utilize snf_ring_recv() which works in both
 // cases.
 func NewReader(r *Ring, timeout time.Duration, burst int) *RingReader {
-	return &RingReader{
-		Ring:    r,
-		reqs:    make([]RecvReq, burst),
-		timeout: timeout,
-		index:   0,
-	}
-}
+	reader := (*C.struct_ring_reader)(C.malloc(C.ring_reader_size(C.int(burst))))
+	reader.ringh = (*C.struct_snf_ring)(r)
+	reader.timeout_ms = dur2ms(timeout)
+	reader.nreq_out = 0
+	reader.nreq_in = C.int(burst)
 
-// ErrSignal wraps os.Signal as an error.
-type ErrSignal struct{ os.Signal }
-
-// Error implements error interface.
-func (e *ErrSignal) Error() string {
-	return fmt.Sprintf("Caught signal: %v", e.Signal)
-}
-
-// NotifyWith installs signal notification channel which is presumably
-// registered via signal.Notify.
-func (rr *RingReader) NotifyWith(ch <-chan os.Signal) {
-	rr.sigCh = ch
-}
-
-func (rr *RingReader) checkSignal() error {
-	if ch := rr.sigCh; ch != nil {
-		select {
-		case sig := <-ch:
-			return &ErrSignal{sig}
-		default:
-		}
-	}
-	return nil
-}
-
-// RawNext gets next packet out of ring. If true, the operation is a
-// success, otherwise you should halt all actions on the receiver
-// until Err() error is examined and needed actions are performed.
-func (rr *RingReader) reload() bool {
-	if rr.err = rr.checkSignal(); rr.err != nil {
-		return false
-	}
-	rr.err = rr.ReturnMany(rr.reqs[:rr.received], nil)
-	if rr.err != nil {
-		return false
-	}
-	rr.received, rr.err = rr.RecvMany(rr.timeout, rr.reqs, &rr.qinfo)
-	return rr.err == nil
-}
-
-// RawNext gets next packet out of ring. If true, the operation is a
-// success, otherwise you should halt all actions on the receiver
-// until Err() error is examined and needed actions are performed.
-func (rr *RingReader) rawNext() bool {
-	for {
-		if rr.index++; rr.index >= rr.received {
-			if rr.index = 0; !rr.reload() {
-				rr.received = 0
-				return false
-			}
-		}
-
-		return true
-	}
-}
-
-func (rr *RingReader) req() *RecvReq {
-	return &rr.reqs[rr.index]
+	rr := &RingReader{reader: reader}
+	runtime.SetFinalizer(rr, func(rr *RingReader) {
+		C.free(unsafe.Pointer(rr.reader))
+	})
+	return &RingReader{reader: reader}
 }
 
 // Next gets next packet out of ring. If true, the operation is a
 // success, otherwise you should halt all actions on the receiver
 // until Err() error is examined and needed actions are performed.
 func (rr *RingReader) Next() bool {
-	return rr.rawNext()
+	if rr.n++; rr.n >= rr.reader.nreq_out {
+		if atomic.LoadUint32(&rr.stopped) > 0 {
+			rr.err = &ErrSignal{rr.sig}
+			return false
+		}
+
+		rr.err = retErr(C.ring_reader_recharge(rr.reader))
+		if rr.err != nil {
+			rr.reader.nreq_out = 0
+			return false
+		}
+		rr.n = 0
+	}
+
+	return true
+}
+
+func (rr *RingReader) req() *RecvReq {
+	return rr.recvReq(rr.n)
 }
 
 // RecvReq returns current packet descriptor. This descriptor points
@@ -131,23 +118,11 @@ func (rr *RingReader) Data() []byte {
 	return rr.req().Data()
 }
 
-// Avail shows how many packets are cached, i.e. left to read without
-// calling SNF API to retrieve new packets.  Mostly used for testing
-// purposes.
-func (rr *RingReader) Avail() int {
-	return rr.received - rr.index
-}
-
 // Err returns error which was encountered during the last RingReader
 // operation on a ring. If Next() method returned false, the error
 // may be revised here.
 func (rr *RingReader) Err() error {
 	return rr.err
-}
-
-// RingQInfo provides access the most recent Ring queue info.
-func (rr *RingReader) RingQInfo() (q *RingQInfo) {
-	return &rr.qinfo
 }
 
 // Free returns all packets that were retrieved but not exposed to the
@@ -159,10 +134,8 @@ func (rr *RingReader) RingQInfo() (q *RingQInfo) {
 // Nevertheless, the use of this function is encouraged anyway as a
 // matter of good code style.
 func (rr *RingReader) Free() error {
-	if len(rr.reqs) == 1 {
-		return nil
-	}
-	return rr.ReturnMany(rr.reqs[:rr.received], &rr.qinfo)
+	C.ring_reader_return_many(rr.reader)
+	return nil
 }
 
 // LoopNext is similar to Next() method but this one loops if EAGAIN
@@ -175,4 +148,19 @@ func (rr *RingReader) LoopNext() bool {
 		}
 	}
 	return true
+}
+
+// NotifyWith installs signal notification channel which is presumably
+// registered via signal.Notify.
+//
+// Please note that this function expects that specified channel is
+// closed at some point to release acquired resources.
+func (rr *RingReader) NotifyWith(ch <-chan os.Signal) {
+	go func() {
+		for sig := range ch {
+			rr.sig = sig
+			atomic.StoreUint32(&rr.stopped, 1)
+			break
+		}
+	}()
 }
