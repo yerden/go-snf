@@ -55,6 +55,16 @@ func (rr *RingReader) recvReq(n C.int) *RecvReq {
 	return (*RecvReq)(p)
 }
 
+// Ring returns underlying receive ring.
+func (rr *RingReader) Ring() *Ring {
+	return (*Ring)((*C.struct_snf_ring)(rr.reader.ringh))
+}
+
+// Stats returns statistics from a receive ring.
+func (rr *RingReader) Stats() (*RingStats, error) {
+	return rr.Ring().Stats()
+}
+
 // NewReader creates new RingReader.  timeout semantics is the same as
 // addressed in Recv() method.  burst is the amount of packets
 // received by underlying SNF's snf_ring_recv_many() function.
