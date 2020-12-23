@@ -85,7 +85,7 @@ func NewReader(r *Ring, timeout time.Duration, burst int) *RingReader {
 	runtime.SetFinalizer(rr, func(rr *RingReader) {
 		C.free(unsafe.Pointer(rr.reader))
 	})
-	return &RingReader{reader: reader}
+	return rr
 }
 
 // Next gets next packet out of ring. If true, the operation is a
