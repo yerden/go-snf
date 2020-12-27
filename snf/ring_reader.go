@@ -7,14 +7,15 @@
 package snf
 
 /*
+#include <stdlib.h>
 #include "wrapper.h"
-#include "ring_reader.h"
 */
 import "C"
 
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
 	"sync/atomic"
 	"syscall"
@@ -27,7 +28,10 @@ import (
 // to access low-level SNF API but maintain compatibility with
 // gopacket's layers decoding abilities.
 type RingReader struct {
-	reader *C.struct_ring_reader
+	*Ring
+
+	timeout time.Duration
+	reqVec  []RecvReq
 
 	// killed
 	stopped uint32
@@ -37,7 +41,26 @@ type RingReader struct {
 	err error
 
 	// index of current snf_recv_req
-	n C.int
+	n int
+}
+
+func extendReqVec(vec []RecvReq) []RecvReq {
+	sh := (*reflect.SliceHeader)(unsafe.Pointer(&vec))
+	sh.Cap = sh.Len
+	return vec
+}
+
+func newReqVec(n int) (vec []RecvReq) {
+	sh := (*reflect.SliceHeader)(unsafe.Pointer(&vec))
+	sh.Data = uintptr(C.malloc(C.size_t(n) * C.sizeof_struct_snf_recv_req))
+	sh.Len = n
+	sh.Cap = n
+	return vec
+}
+
+func freeReqVec(vec []RecvReq) {
+	sh := (*reflect.SliceHeader)(unsafe.Pointer(&vec))
+	C.free(unsafe.Pointer(sh.Data))
 }
 
 // ErrSignal wraps os.Signal as an error.
@@ -46,23 +69,6 @@ type ErrSignal struct{ os.Signal }
 // Error implements error interface.
 func (e *ErrSignal) Error() string {
 	return fmt.Sprintf("Caught signal: %v", e.Signal)
-}
-
-func (rr *RingReader) recvReq(n C.int) *RecvReq {
-	p := unsafe.Pointer(rr.reader)
-	p = unsafe.Pointer(uintptr(p) + uintptr(C.RING_READER_REQ_VECTOR_OFF))
-	p = unsafe.Pointer(uintptr(p) + uintptr(n)*C.sizeof_struct_snf_recv_req)
-	return (*RecvReq)(p)
-}
-
-// Ring returns underlying receive ring.
-func (rr *RingReader) Ring() *Ring {
-	return (*Ring)((*C.struct_snf_ring)(rr.reader.ringh))
-}
-
-// Stats returns statistics from a receive ring.
-func (rr *RingReader) Stats() (*RingStats, error) {
-	return rr.Ring().Stats()
 }
 
 // NewReader creates new RingReader.  timeout semantics is the same as
@@ -75,15 +81,14 @@ func (rr *RingReader) Stats() (*RingStats, error) {
 // case, RingReader will utilize snf_ring_recv() which works in both
 // cases.
 func NewReader(r *Ring, timeout time.Duration, burst int) *RingReader {
-	reader := (*C.struct_ring_reader)(C.malloc(C.ring_reader_size(C.int(burst))))
-	reader.ringh = (*C.struct_snf_ring)(r)
-	reader.timeout_ms = dur2ms(timeout)
-	reader.nreq_out = 0
-	reader.nreq_in = C.int(burst)
+	rr := &RingReader{
+		Ring:    r,
+		timeout: timeout,
+		reqVec:  newReqVec(burst),
+	}
 
-	rr := &RingReader{reader: reader}
 	runtime.SetFinalizer(rr, func(rr *RingReader) {
-		C.free(unsafe.Pointer(rr.reader))
+		freeReqVec(rr.reqVec)
 	})
 	return rr
 }
@@ -92,17 +97,25 @@ func NewReader(r *Ring, timeout time.Duration, burst int) *RingReader {
 // success, otherwise you should halt all actions on the receiver
 // until Err() error is examined and needed actions are performed.
 func (rr *RingReader) Next() bool {
-	if rr.n++; rr.n >= rr.reader.nreq_out {
+	if rr.n++; rr.n >= len(rr.reqVec) {
 		if atomic.LoadUint32(&rr.stopped) > 0 {
 			rr.err = &ErrSignal{rr.sig}
 			return false
 		}
 
-		rr.err = retErr(C.ring_reader_recharge(rr.reader))
-		if rr.err != nil {
-			rr.reader.nreq_out = 0
+		if rr.err = rr.ReturnMany(rr.reqVec, nil); rr.err != nil {
+			rr.reqVec = rr.reqVec[:0]
 			return false
 		}
+
+		rr.reqVec = extendReqVec(rr.reqVec)
+		n, err := rr.RecvMany(rr.timeout, rr.reqVec, nil)
+		if rr.err = err; rr.err != nil {
+			rr.reqVec = rr.reqVec[:0]
+			return false
+		}
+
+		rr.reqVec = rr.reqVec[:n]
 		rr.n = 0
 	}
 
@@ -110,7 +123,7 @@ func (rr *RingReader) Next() bool {
 }
 
 func (rr *RingReader) req() *RecvReq {
-	return rr.recvReq(rr.n)
+	return &rr.reqVec[rr.n]
 }
 
 // RecvReq returns current packet descriptor. This descriptor points
@@ -144,8 +157,7 @@ func (rr *RingReader) Err() error {
 // Nevertheless, the use of this function is encouraged anyway as a
 // matter of good code style.
 func (rr *RingReader) Free() error {
-	C.ring_reader_return_many(rr.reader)
-	return nil
+	return rr.ReturnMany(rr.reqVec, nil)
 }
 
 // LoopNext is similar to Next() method but this one loops if EAGAIN
