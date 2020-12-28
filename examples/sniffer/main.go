@@ -70,6 +70,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+	defer dev.Close()
 
 	// open rings until exhausted
 	var rings []*snf.Ring
