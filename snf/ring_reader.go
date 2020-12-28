@@ -46,14 +46,14 @@ type RingReader struct {
 
 func extendReqVec(vec []RecvReq) []RecvReq {
 	sh := (*reflect.SliceHeader)(unsafe.Pointer(&vec))
-	sh.Cap = sh.Len
+	sh.Len = sh.Cap
 	return vec
 }
 
 func newReqVec(n int) (vec []RecvReq) {
 	sh := (*reflect.SliceHeader)(unsafe.Pointer(&vec))
 	sh.Data = uintptr(C.malloc(C.size_t(n) * C.sizeof_struct_snf_recv_req))
-	sh.Len = n
+	sh.Len = 0
 	sh.Cap = n
 	return vec
 }
