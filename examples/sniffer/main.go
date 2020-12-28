@@ -41,6 +41,8 @@ func main() {
 	}
 	defer f.Close()
 
+	f.Truncate(0)
+
 	pcapgo.DefaultNgInterface.SnapLength = uint32(*snapLen)
 	w, err := pcapgo.NewNgWriter(f, layers.LinkTypeEthernet)
 	if err != nil {
