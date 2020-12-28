@@ -53,7 +53,6 @@ func extendReqVec(vec []RecvReq) []RecvReq {
 func newReqVec(n int) (vec []RecvReq) {
 	sh := (*reflect.SliceHeader)(unsafe.Pointer(&vec))
 	sh.Data = uintptr(C.malloc(C.size_t(n) * C.sizeof_struct_snf_recv_req))
-	sh.Len = 0
 	sh.Cap = n
 	return vec
 }
@@ -86,6 +85,8 @@ func NewReader(r *Ring, timeout time.Duration, burst int) *RingReader {
 		timeout: timeout,
 		reqVec:  newReqVec(burst),
 	}
+
+	rr.reqVec = rr.reqVec[:0]
 
 	runtime.SetFinalizer(rr, func(rr *RingReader) {
 		freeReqVec(rr.reqVec)
