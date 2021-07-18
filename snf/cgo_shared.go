@@ -1,4 +1,4 @@
-// +build !snf_mockup,!snf_static_pie,!snf_static_nopie
+// +build !snf_mockup,!snf_static
 
 package snf
 

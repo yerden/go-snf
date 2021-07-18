@@ -1,4 +1,4 @@
-// +build snf_static_pie
+// +build snf_static
 
 package snf
 
