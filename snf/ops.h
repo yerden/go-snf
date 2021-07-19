@@ -14,14 +14,12 @@ struct go_snf_ops {
 	int (*getportmask_linkup)(uint32_t * mask_o, int *cnt_o);
 
 	// snf handle ops
-	int (*open)(uint32_t, int, const struct snf_rss_params, int64_t, int,
+	int (*open)(uint32_t, int, const struct snf_rss_params *, int64_t, int,
 		    snf_handle_t *);
-	int (*open_defaults)(uint32_t, int, const struct snf_rss_params,
-			     int64_t, int, snf_handle_t *);
+	int (*open_defaults)(uint32_t portnum, snf_handle_t * devhandle);
 	int (*start)(snf_handle_t);
 	int (*stop)(snf_handle_t);
 	int (*close)(snf_handle_t devhandle);
-	int (*get_link)(snf_handle_t);
 	int (*get_link_state)(snf_handle_t devhandle,
 			      enum snf_link_state * state);
 

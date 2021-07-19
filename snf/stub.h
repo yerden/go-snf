@@ -190,7 +190,49 @@ static int stub_netdev_reflect(snf_netdev_reflect_t ref_dev, const void *pkt,
 	return ENOTSUP;
 }
 
-static struct go_snf_ops stub_ops = {
+struct go_snf_ops stub_ops = {
+	// basic ops
 	.init = stub_init,
 	.set_app_id = stub_set_app_id,
+	.getifaddrs = stub_getifaddrs,
+	.freeifaddrs = stub_freeifaddrs,
+	.getportmask_valid = stub_getportmask_valid,
+	.getportmask_linkup = stub_getportmask_linkup,
+
+	// snf handle ops
+	.open = stub_open,
+	.open_defaults = stub_open_defaults,
+	.start = stub_start,
+	.stop = stub_stop,
+	.close = stub_close,
+	.get_link_state = stub_get_link_state,
+
+	.get_timesource_state = stub_get_timesource_state,
+	.get_link_speed = stub_get_link_speed,
+	.ring_open = stub_ring_open,
+	.ring_open_id = stub_ring_open_id,
+
+	// ring ops
+	.ring_recv = stub_ring_recv,
+	.ring_portinfo_count = stub_ring_portinfo_count,
+	.ring_portinfo = stub_ring_portinfo,
+	.ring_recv_qinfo = stub_ring_recv_qinfo,
+	.ring_recv_many = stub_ring_recv_many,
+	.ring_return_many = stub_ring_return_many,
+	.ring_getstats = stub_ring_getstats,
+	.ring_close = stub_ring_close,
+
+	// inject ops
+	.inject_open = stub_inject_open,
+	.get_injection_speed = stub_get_injection_speed,
+	.inject_send = stub_inject_send,
+	.inject_sched = stub_inject_sched,
+	.inject_send_v = stub_inject_send_v,
+	.inject_sched_v = stub_inject_sched_v,
+	.inject_close = stub_inject_close,
+	.inject_getstats = stub_inject_getstats,
+
+	// reflect ops
+	.netdev_reflect_enable = stub_netdev_reflect_enable,
+	.netdev_reflect = stub_netdev_reflect,
 };
