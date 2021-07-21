@@ -19,5 +19,8 @@ export CGO_CFLAGS="-I/path/to/snf/include"
 export CGO_LDFLAGS="-L/path/to/snf/lib -lsnf"
 ```
 
+Library may also be linked statically by using `snf_static` tag.
+
 ### Caveats
-The package is under development so API may experience some changes. Any contributions from Myricom NICs users are welcome.
+* The package is under development so API may experience some changes. Any contributions from Myricom NICs users are welcome.
+* `libsnf` library doesn't support position-independent executables. If gcc requires, specify `-no-pie` option in `CGO_CFLAGS`.
