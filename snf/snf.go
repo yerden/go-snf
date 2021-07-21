@@ -172,8 +172,8 @@ func dur2ms(d time.Duration) C.int {
 	// a desired wait time in milliseconds. With a non-zero wait
 	// time, the function only blocks if there are no outstanding
 	// packets.
-	if ms := int(d.Nanoseconds() / 1000000); ms > 0 {
-		return C.int(ms)
+	if ms := C.int(d.Milliseconds()); ms > 0 {
+		return ms
 	}
 
 	// "If the value is 0, the function is guaranteed to never
