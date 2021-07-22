@@ -61,3 +61,5 @@ script:
   - go build
   - go vet -tags snf_mockup
   - go build -tags snf_mockup
+  - go build
+  - CGO_LDFLAGS="-no-pie" go build -tags snf_static
