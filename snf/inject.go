@@ -5,7 +5,10 @@
 
 package snf
 
-/* #include "wrapper.h"
+/*
+#include "wrapper.h"
+#include "inject.h"
+
 int go_inject_send_v(snf_inject_t inj, int timeout_ms, int flags,
        uintptr_t frags_vec, int nfrags,
        uint32_t length_hint)
@@ -143,6 +146,10 @@ type Sender struct {
 
 	// fragment buffer
 	frags []C.struct_snf_pkt_fragment
+
+	// buffers for injecting in bulk
+	pkts []byte
+	len  []uint32
 }
 
 // NewSender returns new Sender object with given timeout and flags
@@ -238,6 +245,24 @@ func (s *Sender) Send(pkt []byte) error {
 	}
 	return retErr(C.snf_inject_send(injHandle(s.InjectHandle), s.timeoutMs,
 		s.flags, unsafe.Pointer(&pkt[0]), C.uint(len(pkt))))
+}
+
+// SendBulk sends packets in bulk using snf_inject_send. If there are errors, it
+// will return the first error found, or nil.
+func (s *Sender) SendBulk(pkts [][]byte) error {
+	if err := s.checkSignal(); err != nil {
+		return err
+	}
+
+	s.pkts = s.pkts[:0]
+	s.len = s.len[:0]
+	for _, pkt := range pkts {
+		s.pkts = append(s.pkts, pkt...)
+		s.len = append(s.len, uint32(len(pkt)))
+	}
+
+	return retErr(C.snf_inject_send_bulk(injHandle(s.InjectHandle), s.timeoutMs,
+		s.flags, (*C.uint8_t)(&s.pkts[0]), C.uint32_t(len(s.pkts)), (*C.uint32_t)(&s.len[0])))
 }
 
 // SendVec sends a packet assembled from a vector of fragments and
