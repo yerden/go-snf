@@ -261,8 +261,9 @@ static int snf_inject_send(snf_inject_t inj, int timeout_ms, int flags,
 	return ENOTSUP;
 }
 
-static int snf_inject_send_bulk(snf_inject_t inj, int timeout_ms, int flags,
-				const uint8_t *pkts, uint32_t n_pkts, const uint32_t *lengths)
+static inline struct compound_int snf_inject_send_bulk(snf_inject_t inj,
+				int timeout_ms, int flags, uintptr_t *pkts, uint32_t n_pkts,
+				const uint32_t *lengths)
 {
 	return ENOTSUP;
 }

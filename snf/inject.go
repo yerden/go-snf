@@ -250,11 +250,12 @@ func (s *Sender) Send(pkt []byte) error {
 		s.flags, unsafe.Pointer(&pkt[0]), C.uint(len(pkt))))
 }
 
-// SendBulk sends packets in bulk using snf_inject_send. If there are errors, it
-// will return the first error found, or nil.
-func (s *Sender) SendBulk(pkts [][]byte) error {
+// SendBulk sends packets in bulk using snf_inject_send. It returns number of
+// packets successfully sent, and if there are errors, it returns the first
+// error found, or nil.
+func (s *Sender) SendBulk(pkts [][]byte) (int, error) {
 	if err := s.checkSignal(); err != nil {
-		return err
+		return 0, err
 	}
 
 	s.guardPkts = pkts
@@ -265,8 +266,9 @@ func (s *Sender) SendBulk(pkts [][]byte) error {
 		s.len = append(s.len, C.uint32_t(len(pkt)))
 	}
 
-	return retErr(C.snf_inject_send_bulk(injHandle(s.InjectHandle), s.timeoutMs, s.flags,
-		&s.pkts[0], C.uint32_t(len(s.pkts)), &s.len[0]))
+	out := C.snf_inject_send_bulk(injHandle(s.InjectHandle), s.timeoutMs, s.flags,
+		&s.pkts[0], C.uint32_t(len(s.pkts)), &s.len[0])
+	return intErr(&out)
 }
 
 // SendVec sends a packet assembled from a vector of fragments and
