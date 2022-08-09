@@ -148,8 +148,11 @@ type Sender struct {
 	frags []C.struct_snf_pkt_fragment
 
 	// buffers for injecting in bulk
-	pkts []byte
+	pkts []uintptr
 	len  []uint32
+
+	// protect the memory from GC
+	guardPkts [][]byte
 }
 
 // NewSender returns new Sender object with given timeout and flags
@@ -254,15 +257,16 @@ func (s *Sender) SendBulk(pkts [][]byte) error {
 		return err
 	}
 
+	s.guardPkts = pkts
 	s.pkts = s.pkts[:0]
 	s.len = s.len[:0]
 	for _, pkt := range pkts {
-		s.pkts = append(s.pkts, pkt...)
+		s.pkts = append(s.pkts, uintptr(unsafe.Pointer(&pkt[0])))
 		s.len = append(s.len, uint32(len(pkt)))
 	}
 
-	return retErr(C.snf_inject_send_bulk(injHandle(s.InjectHandle), s.timeoutMs,
-		s.flags, (*C.uint8_t)(&s.pkts[0]), C.uint32_t(len(s.pkts)), (*C.uint32_t)(&s.len[0])))
+	return retErr(C.snf_inject_send_bulk(injHandle(s.InjectHandle), s.timeoutMs, s.flags,
+		(*unsafe.Pointer)(unsafe.Pointer(&s.pkts[0])), C.uint32_t(len(s.pkts)), (*C.uint32_t)(&s.len[0])))
 }
 
 // SendVec sends a packet assembled from a vector of fragments and
